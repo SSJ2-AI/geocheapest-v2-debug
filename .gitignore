@@ -72,3 +72,7 @@ verify_gcp.py
 url.txt
 test_add_product.py
 add_test_product_api.py
+
+# Temporary Logs
+latest_logs.json
+service_desc.json
