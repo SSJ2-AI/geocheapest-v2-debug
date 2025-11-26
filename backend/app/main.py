@@ -1223,7 +1223,11 @@ async def get_best_price(
                 "is_preorder": listing.get("is_preorder", False),
                 "listing_id": doc.id,
                 "url": shopify_url,
-                "upc": listing.get("upc") or listing.get("barcode")
+                "upc": listing.get("upc") or listing.get("barcode"),
+                "asin": None,
+                "rating": None,
+                "review_count": None,
+                "description": listing.get("product_description")
             })
     
     # Get affiliate listings
@@ -1245,7 +1249,10 @@ async def get_best_price(
                 "listing_id": doc.id,
                 "url": listing.get("affiliate_url") or affiliate_service.build_amazon_affiliate_url(listing.get("asin")),
                 "asin": listing.get("asin"),
-                "upc": listing.get("upc")
+                "upc": listing.get("upc"),
+                "rating": listing.get("vendor_rating") or listing.get("rating"),
+                "review_count": listing.get("review_count"),
+                "description": listing.get("description")
             })
     
     if not listings:

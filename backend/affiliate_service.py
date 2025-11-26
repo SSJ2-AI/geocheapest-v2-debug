@@ -231,55 +231,43 @@ class AffiliateService:
         return "available"
 
     async def _upsert_product(self, normalized: Dict[str, Any]) -> str:
-        # Note: stream() returns an async iterator in our Mock DB, so we use async for
-        # But for real Firestore Sync client, it's sync.
-        # Since we are moving to Async, we should treat db as AsyncClient.
-        # However, database.py creates a Sync client by default.
-        # We need to ensure we are using the Async compatible methods.
-        
-        query = (
-            db.collection(PRODUCTS)
-            .where("name", "==", normalized["title"])
-            .limit(1)
-        )
-        
-        product_id = None
-        # Handle both async stream (Mock) and sync stream (Real Sync Client)
-        # This is tricky. If db is Sync, we can't await.
-        # But main.py injects AsyncClient. 
-        # database.py 'db' object is a Proxy.
-        # Let's assume we are fully Async now for this flow.
-        
-        # In Mock DB, stream() returns self (AsyncIterator).
-        async for doc in query.stream():
-            product_id = doc.id
-            await doc.reference.update(
-                {
-                    "updated_at": datetime.utcnow(),
-                    "image_url": normalized["image"],
-                    "category": normalized["game"],
-                    "segment": "sealed",
-                }
+        async def find_by(field: str, value: str):
+            if not value:
+                return None
+            query = (
+                db.collection(PRODUCTS)
+                .where(field, "==", value)
+                .limit(1)
             )
-            break
+            async for doc in query.stream():
+                return doc
+            return None
 
-        if not product_id:
-            ref = db.collection(PRODUCTS).document()
-            await ref.set(
-                {
-                    "name": normalized["title"],
-                    "description": normalized["description"],
-                    "category": normalized["game"],
-                    "segment": "sealed",
-                    "image_url": normalized["image"],
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                    "total_sales": 0,
-                }
-            )
-            product_id = ref.id
+        product_doc = None
+        product_doc = product_doc or await find_by("asin", normalized.get("asin"))
+        product_doc = product_doc or await find_by("upc", normalized.get("upc"))
+        product_doc = product_doc or await find_by("name", normalized["title"])
 
-        return product_id
+        data = {
+            "name": normalized["title"],
+            "description": normalized["description"],
+            "category": normalized["game"],
+            "segment": "sealed",
+            "image_url": normalized["image"],
+            "asin": normalized.get("asin"),
+            "upc": normalized.get("upc"),
+            "updated_at": datetime.utcnow(),
+        }
+
+        if product_doc:
+            await product_doc.reference.update(data)
+            return product_doc.id
+
+        ref = db.collection(PRODUCTS).document()
+        data["created_at"] = datetime.utcnow()
+        data["total_sales"] = 0
+        await ref.set(data)
+        return ref.id
 
     async def _upsert_amazon_listing(self, product_id: str, normalized: Dict[str, Any]):
         doc_id = f"amazon_{normalized['asin']}"

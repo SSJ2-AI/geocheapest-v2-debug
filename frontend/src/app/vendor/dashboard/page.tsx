@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, Suspense, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import axios from 'axios'
-import { Package, DollarSign, TrendingUp, RefreshCw } from 'lucide-react'
+import { Package, DollarSign, TrendingUp, RefreshCw, Truck, Shield } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -88,14 +88,17 @@ function VendorDashboardContent() {
 
   if (!shop) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-10 max-w-2xl text-center border border-indigo-100">
+          <h2 className="text-3xl font-bold text-gray-900 mb-3">
             Connect Your Shopify Store
           </h2>
+          <p className="text-gray-600 mb-6">
+            Sync your catalog in minutes, accept Stripe payouts, and get instant access to our national buyer base.
+          </p>
           <a
             href={`${API_URL}/api/shopify/install?shop=YOUR_STORE.myshopify.com`}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors inline-block"
+            className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
           >
             Connect Shopify
           </a>
@@ -107,7 +110,10 @@ function VendorDashboardContent() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="space-y-4 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="text-gray-500 font-medium">Loading your dashboard…</p>
+        </div>
       </div>
     )
   }
@@ -118,8 +124,9 @@ function VendorDashboardContent() {
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Vendor Dashboard</h1>
-            <p className="text-gray-600 mt-1">{shop}</p>
+            <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold">Vendor Command Center</p>
+            <h1 className="text-3xl font-bold text-gray-900 mt-1">{dashboardData?.store?.store_name || 'Vendor Dashboard'}</h1>
+            <p className="text-gray-500">{shop}</p>
           </div>
           <button
             onClick={handleSyncProducts}
@@ -133,65 +140,34 @@ function VendorDashboardContent() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center gap-4">
-              <div className="bg-blue-100 p-3 rounded-lg">
-                <Package className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Total Products</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {dashboardData?.stats.total_products || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center gap-4">
-              <div className="bg-green-100 p-3 rounded-lg">
-                <DollarSign className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Total Sales</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${dashboardData?.store.total_sales?.toFixed(2) || '0.00'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center gap-4">
-              <div className="bg-purple-100 p-3 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Commission Rate</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {(dashboardData?.store.commission_rate * 100).toFixed(1)}%
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center gap-4">
-              <div className="bg-yellow-100 p-3 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Subscription</p>
-                <p className="text-2xl font-bold text-gray-900 capitalize">
-                  {dashboardData?.store.subscription_status || 'not subscribed'}
-                </p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            icon={<Package className="w-6 h-6" />}
+            label="Active Products"
+            value={dashboardData?.stats.total_products || 0}
+            accent="bg-blue-100 text-blue-600"
+          />
+          <StatCard
+            icon={<DollarSign className="w-6 h-6" />}
+            label="Lifetime Sales"
+            value={`$${dashboardData?.store.total_sales?.toFixed(2) || '0.00'}`}
+            accent="bg-green-100 text-green-600"
+          />
+          <StatCard
+            icon={<TrendingUp className="w-6 h-6" />}
+            label="Commission Rate"
+            value={`${(dashboardData?.store.commission_rate * 100).toFixed(1)}%`}
+            accent="bg-purple-100 text-purple-600"
+          />
+          <StatCard
+            icon={<Shield className="w-6 h-6" />}
+            label="Subscription"
+            value={dashboardData?.store.subscription_status || 'not subscribed'}
+            accent="bg-yellow-100 text-yellow-700"
+          />
         </div>
 
         {/* Products */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+        <div className="bg-white rounded-2xl shadow-md p-6 mb-8 border border-gray-100">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Your Products</h2>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -228,8 +204,11 @@ function VendorDashboardContent() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Recent Orders */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Recent Orders</h2>
+          <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-100">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Recent Orders</h2>
+              <span className="text-sm text-gray-500">{dashboardData?.recent_orders?.length || 0} orders</span>
+            </div>
             {dashboardData?.recent_orders?.length > 0 ? (
               <div className="space-y-4">
                 {dashboardData.recent_orders.map((order: any) => (
@@ -252,8 +231,11 @@ function VendorDashboardContent() {
           </div>
 
           {/* Shippo Label */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Generate Shipping Label</h2>
+          <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-100">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Generate Shipping Label</h2>
+              <Truck className="w-6 h-6 text-blue-600" />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <input
                 type="text"
@@ -336,5 +318,21 @@ export default function VendorDashboard() {
     }>
       <VendorDashboardContent />
     </Suspense>
+  )
+}
+
+function StatCard({ icon, label, value, accent }: { icon: ReactNode; label: string; value: string | number; accent: string }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-100">
+      <div className="flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${accent}`}>
+          {icon}
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">{label}</p>
+          <p className="text-2xl font-bold text-gray-900">{value}</p>
+        </div>
+      </div>
+    </div>
   )
 }

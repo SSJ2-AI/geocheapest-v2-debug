@@ -9,6 +9,21 @@ import axios from 'axios'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+const marketplaceHighlights = [
+  {
+    title: 'Verified Partner Stores',
+    description: 'Canadian hobby shops and vetted Amazon/eBay partners with transparent ratings and stock data.'
+  },
+  {
+    title: 'Best Price Engine',
+    description: 'Real-time price comparison across Shopify vendors and affiliate listings, including ship cost optimization.'
+  },
+  {
+    title: 'Secure Checkout',
+    description: 'Stripe-powered split checkout for multi-vendor carts plus instant affiliate redirects when needed.'
+  }
+]
+
 interface Product {
   id: string
   name: string
@@ -68,15 +83,44 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl font-bold mb-4">
-            Find the Best TCG Prices in Canada
-          </h2>
-          <p className="text-xl mb-8 text-blue-100">
-            We compare prices from multiple vendors to save you money
-          </p>
-          <SearchBar onSearch={(query) => console.log('Search:', query)} />
+      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <p className="uppercase text-sm tracking-widest text-blue-200 font-semibold">Canada&apos;s TCG Marketplace</p>
+            <h2 className="text-4xl lg:text-5xl font-bold mb-4 leading-tight">
+              Find sealed products and singles at the best prices—automatically.
+            </h2>
+            <p className="text-lg mb-8 text-blue-100">
+              GeoCheapest aggregates Shopify vendors and strategic affiliate partners so you can compare price, shipping, and seller reputation in one place.
+            </p>
+            <SearchBar onSearch={(query) => console.log('Search:', query)} />
+          </div>
+          <div className="bg-white/10 rounded-2xl p-6 backdrop-blur">
+            <h3 className="text-xl font-semibold mb-4">Why shoppers love us</h3>
+            <ul className="space-y-4 text-blue-100">
+              <li>• AI deal hunter that tracks drops & restocks</li>
+              <li>• Transparent partner ratings + review counts</li>
+              <li>• Split checkout: Shopify + affiliate orders handled in one flow</li>
+            </ul>
+            <a
+              href="/admin/dashboard"
+              className="inline-flex mt-6 items-center gap-2 bg-white text-blue-700 px-4 py-2 rounded-lg font-semibold shadow"
+            >
+              Sell with GeoCheapest →
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* Marketplace Highlights */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {marketplaceHighlights.map((card) => (
+            <div key={card.title} className="bg-white rounded-2xl shadow px-6 py-5 border border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{card.title}</h3>
+              <p className="text-gray-600 text-sm">{card.description}</p>
+            </div>
+          ))}
         </div>
       </section>
 
