@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from uuid import uuid4
 import logging
 import os
@@ -58,6 +58,19 @@ from jose import JWTError, jwt
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
+
+
+def _valid_admin_keys() -> Set[str]:
+    keys = {k for k in [os.getenv("ADMIN_API_KEY")] if k}
+    legacy = os.getenv("ADMIN_LEGACY_KEYS", "")
+    if legacy:
+        keys.update({k.strip() for k in legacy.split(",") if k.strip()})
+    return keys
+
+
+def require_admin_key(provided: Optional[str]) -> None:
+    if not provided or provided not in _valid_admin_keys():
+        raise HTTPException(status_code=403, detail="Invalid admin key")
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -853,8 +866,7 @@ async def scrape_amazon_product(
     affiliate_url = body.get("affiliate_url", "")
     game = body.get("game", "Pokemon")
     
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    require_admin_key(admin_key)
     
     # Extract ASIN from URL
     import re
@@ -879,8 +891,7 @@ async def add_product_from_url_endpoint(
     if metadata and not isinstance(metadata, dict):
         raise HTTPException(status_code=400, detail="metadata must be an object")
     
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    require_admin_key(admin_key)
         
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -929,8 +940,7 @@ async def seed_mock_shopify(
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
 ):
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    require_admin_key(admin_key)
 
     store_ref = db.collection("stores").document(payload.shop)
     store_payload = {
@@ -1186,8 +1196,7 @@ async def add_ebay_product(
     description = body.get("description", "")
     image_url = body.get("image_url", "")
     
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Invalid admin key")
+    require_admin_key(admin_key)
     
     if not affiliate_url or not product_name:
         raise HTTPException(status_code=400, detail="affiliate_url and product_name are required")
@@ -2261,8 +2270,7 @@ async def admin_dashboard(
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """Super admin dashboard with platform analytics"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     
     # Get all stores
     stores = []
@@ -2315,8 +2323,7 @@ async def approve_store(
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """Approve a vendor store"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     
     await db.collection("stores").document(shop).update({
         "status": "active",
@@ -2333,8 +2340,7 @@ async def update_commission_rates(
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """Update platform commission rates"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     
     await db.collection("commissionRates").document("default").set({
         **rates,
@@ -2352,8 +2358,7 @@ async def set_vendor_commission(
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """Set custom commission rate for specific vendor"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     
     await db.collection("stores").document(shop).update({
         "commission_rate": rate,
@@ -2366,8 +2371,7 @@ async def set_vendor_commission(
 @app.post("/api/admin/amazon/sync")
 async def trigger_amazon_sync(admin_key: str):
     """Manually trigger an Amazon.ca affiliate sync"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     if not affiliate_service.amazon_sync_enabled:
         raise HTTPException(status_code=400, detail="Amazon sync disabled")
     await affiliate_service.sync_amazon_tcg_products()
@@ -2411,8 +2415,7 @@ async def approve_return(
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """Approve return and process refund"""
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    require_admin_key(admin_key)
     
     return_doc = await db.collection("returnRequests").document(return_id).get()
     if not return_doc.exists:
