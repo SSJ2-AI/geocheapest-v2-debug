@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useCartStore } from '@/store/cartStore'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { loadStripe } from '@stripe/stripe-js'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { getApiUrl } from '@/lib/api'
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 interface OptimizedItem {
@@ -37,6 +36,7 @@ interface OptimizationResponse {
 
 export default function CheckoutPage() {
   const router = useRouter()
+  const apiBase = useMemo(() => getApiUrl(), [])
   const { items, clearCart } = useCartStore()
   const [optimizedCart, setOptimizedCart] = useState<OptimizationResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -66,7 +66,7 @@ export default function CheckoutPage() {
 
     try {
       setLoading(true)
-      const response = await axios.post(`${API_URL}/api/cart/optimize`, {
+      const response = await axios.post(`${apiBase}/api/cart/optimize`, {
         items: items.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
@@ -95,7 +95,7 @@ export default function CheckoutPage() {
 
     try {
       setLoading(true)
-      const response = await axios.post(`${API_URL}/api/checkout`, {
+      const response = await axios.post(`${apiBase}/api/checkout`, {
         items: optimizedCart.items,
         customer_email: email,
         shipping_address: shippingAddress,

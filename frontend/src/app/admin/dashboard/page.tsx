@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { Store, DollarSign, ShoppingBag, Users } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { getApiUrl } from '@/lib/api'
 
 export default function AdminDashboard() {
   const router = useRouter()
+  const apiBase = useMemo(() => getApiUrl(), [])
   const [adminKey, setAdminKey] = useState('')
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -43,7 +43,7 @@ export default function AdminDashboard() {
 
     try {
       setAddingProduct(true)
-      await axios.post(`${API_URL}/api/admin/products/add_from_url`, {
+      await axios.post(`${apiBase}/api/admin/products/add_from_url`, {
         url: productUrl.trim(),
         admin_key: adminKey,
         metadata: buildMetadata()
@@ -75,7 +75,7 @@ export default function AdminDashboard() {
 
     try {
       setLoading(true)
-      const response = await axios.get(`${API_URL}/api/admin/dashboard`, {
+      const response = await axios.get(`${apiBase}/api/admin/dashboard`, {
         params: { admin_key: adminKey },
       })
       setDashboardData(response.data)
@@ -95,7 +95,7 @@ export default function AdminDashboard() {
     try {
       setSyncingAmazon(true)
       await axios.post(
-        `${API_URL}/api/admin/amazon/sync`,
+        `${apiBase}/api/admin/amazon/sync`,
         null,
         { params: { admin_key: adminKey } }
       )
@@ -110,7 +110,7 @@ export default function AdminDashboard() {
   const handleApproveStore = async (shop: string) => {
     try {
       await axios.post(
-        `${API_URL}/api/admin/stores/${shop}/approve`,
+        `${apiBase}/api/admin/stores/${shop}/approve`,
         null,
         { params: { admin_key: adminKey } }
       )

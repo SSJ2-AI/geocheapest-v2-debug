@@ -154,6 +154,49 @@ market_service = MarketDataService()
 
 _amazon_task: Optional[asyncio.Task] = None
 
+DEFAULT_AFFILIATE_SEED = [
+    {
+        "asin": "B0C3H1234",
+        "title": "Pokemon TCG: Scarlet & Violet - 151 Booster Box",
+        "description": "36 packs featuring the original 151 Pokemon from Kanto.",
+        "category": "Pokemon",
+        "image": "https://product-images.tcgplayer.com/fit-in/874x874/465472.jpg",
+        "price": 149.91,
+        "rating": 4.8,
+        "review_count": 420
+    },
+    {
+        "asin": "B0D1F5678",
+        "title": "One Piece Card Game: Two Legends Booster Box",
+        "description": "Dual leader cards and new mechanics in this 24-pack booster.",
+        "category": "One Piece",
+        "image": "https://product-images.tcgplayer.com/fit-in/874x874/480123.jpg",
+        "price": 199.99,
+        "rating": 4.7,
+        "review_count": 310
+    },
+    {
+        "asin": "B0C8K9012",
+        "title": "Pokemon TCG: Twilight Masquerade - White Flare Elite Trainer Box",
+        "description": "Exclusive promo card plus dice, sleeves, and accessories.",
+        "category": "Pokemon",
+        "image": "https://product-images.tcgplayer.com/fit-in/874x874/490567.jpg",
+        "price": 146.87,
+        "rating": 4.6,
+        "review_count": 185
+    },
+    {
+        "asin": "B0CROYALBLOOD",
+        "title": "One Piece Card Game: Royal Blood Starter Deck",
+        "description": "Ready-to-play starter deck themed around Royal Blood.",
+        "category": "One Piece",
+        "image": "https://product-images.tcgplayer.com/fit-in/874x874/482345.jpg",
+        "price": 88.0,
+        "rating": 4.5,
+        "review_count": 120
+    }
+]
+
 
 @app.on_event("startup")
 async def on_startup():
@@ -987,6 +1030,41 @@ async def seed_mock_shopify(
         })
 
     return {"store": payload.shop, "created": created}
+
+
+@app.post("/api/admin/mock/default-products")
+async def seed_default_affiliates(
+    admin_key: str,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    require_admin_key(admin_key)
+    created = []
+    for sample in DEFAULT_AFFILIATE_SEED:
+        normalized = {
+            "asin": sample["asin"],
+            "title": sample["title"],
+            "description": sample["description"],
+            "price": float(sample["price"]),
+            "image": sample["image"],
+            "url": affiliate_service.build_amazon_affiliate_url(sample["asin"]),
+            "rating": float(sample.get("rating", 0) or 0),
+            "review_count": int(sample.get("review_count", 0) or 0),
+            "prime": False,
+            "game": sample["category"],
+            "product_type": "sealed_product",
+            "release_status": "available",
+            "seller": "Amazon",
+            "quantity": 25,
+            "in_stock": True
+        }
+        product_id = await affiliate_service._upsert_product(normalized)
+        await affiliate_service._upsert_amazon_listing(product_id, normalized)
+        created.append({
+            "product_id": product_id,
+            "asin": sample["asin"],
+            "title": sample["title"]
+        })
+    return {"seeded": len(created), "products": created}
 
 @app.get("/api/admin/dashboard")
 async def get_admin_dashboard(

@@ -16,15 +16,20 @@ const cards = [
     href: '/vendor/dashboard',
     icon: Store,
   },
-  {
-    title: 'Super Admin',
-    description: 'Approve vendors, monitor platform health, and tweak commission.',
-    href: '/admin/dashboard',
-    icon: Shield,
-  },
 ]
 
 export default function PortalPage() {
+  const showAdminCard =
+    process.env.NEXT_PUBLIC_SHOW_ADMIN_PORTAL === 'true'
+  const cardData = showAdminCard
+    ? cards.concat({
+        title: 'Super Admin',
+        description: 'Approve vendors, monitor platform health, and tweak commission.',
+        href: '/admin/dashboard',
+        icon: Shield,
+      })
+    : cards
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -36,7 +41,7 @@ export default function PortalPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {cards.map((card) => (
+          {cardData.map((card) => (
             <Link
               key={card.title}
               href={card.href}

@@ -6,8 +6,8 @@ import { CartWidget } from '@/components/CartWidget'
 import { SearchBar } from '@/components/SearchBar'
 import { useCartStore } from '@/store/cartStore'
 import axios from 'axios'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useMemo } from 'react'
+import { getApiUrl } from '@/lib/api'
 
 const marketplaceHighlights = [
   {
@@ -41,19 +41,20 @@ interface Product {
 }
 
 export default function Home() {
+  const apiBase = useMemo(() => getApiUrl(), [])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState<string | null>(null)
 
   useEffect(() => {
     fetchProducts()
-  }, [category])
+  }, [category, apiBase])
 
   const fetchProducts = async () => {
     try {
       setLoading(true)
       const params = category ? { category } : {}
-      const response = await axios.get(`${API_URL}/api/products`, { params })
+      const response = await axios.get(`${apiBase}/api/products`, { params })
       console.log('Products from API:', response.data.products)
       setProducts(response.data.products || [])
     } catch (error) {
@@ -103,10 +104,16 @@ export default function Home() {
               <li>• Split checkout: Shopify + affiliate orders handled in one flow</li>
             </ul>
             <a
-              href="/admin/dashboard"
+              href="/vendor/signup"
               className="inline-flex mt-6 items-center gap-2 bg-white text-blue-700 px-4 py-2 rounded-lg font-semibold shadow"
             >
-              Sell with GeoCheapest →
+              Start selling →
+            </a>
+            <a
+              href="/signup"
+              className="inline-flex mt-4 items-center gap-2 text-white border border-white/60 px-4 py-2 rounded-lg font-semibold"
+            >
+              Create customer account
             </a>
           </div>
         </div>

@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import axios from 'axios'
 import { User, CreditCard, Package, DollarSign, Search } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { getApiUrl } from '@/lib/api'
 
 export default function UserDashboard() {
+  const apiBase = useMemo(() => getApiUrl(), [])
   const [userId, setUserId] = useState('')
   const [profile, setProfile] = useState<any>(null)
   const [orders, setOrders] = useState<any[]>([])
@@ -22,9 +22,9 @@ export default function UserDashboard() {
     try {
       setLoading(true)
       const [profileRes, ordersRes, paymentsRes] = await Promise.all([
-        axios.get(`${API_URL}/api/users/${userId}`),
-        axios.get(`${API_URL}/api/users/${userId}/orders`),
-        axios.get(`${API_URL}/api/users/${userId}/payment-methods`),
+        axios.get(`${apiBase}/api/users/${userId}`),
+        axios.get(`${apiBase}/api/users/${userId}/orders`),
+        axios.get(`${apiBase}/api/users/${userId}/payment-methods`),
       ])
       setProfile(profileRes.data)
       setOrders(ordersRes.data.orders || [])

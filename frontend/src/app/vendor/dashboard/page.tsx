@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState, Suspense, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, Suspense, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import axios from 'axios'
 import { Package, DollarSign, TrendingUp, RefreshCw, Truck, Shield } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { getApiUrl } from '@/lib/api'
 
 function VendorDashboardContent() {
   const searchParams = useSearchParams()
+  const apiBase = useMemo(() => getApiUrl(), [])
   const shop = searchParams.get('shop')
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -29,12 +29,12 @@ function VendorDashboardContent() {
     if (shop) {
       fetchDashboardData()
     }
-  }, [shop])
+  }, [shop, apiBase])
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true)
-      const response = await axios.get(`${API_URL}/api/vendor/dashboard`, {
+      const response = await axios.get(`${apiBase}/api/vendor/dashboard`, {
         params: { shop },
       })
       setDashboardData(response.data)
@@ -52,7 +52,7 @@ function VendorDashboardContent() {
     }
     try {
       setLabelLoading(true)
-      await axios.post(`${API_URL}/api/vendor/shipping-label`, {
+      await axios.post(`${apiBase}/api/vendor/shipping-label`, {
         shop,
         order_id: labelForm.order_id,
         shipping_address: labelForm,
@@ -73,7 +73,7 @@ function VendorDashboardContent() {
   const handleSyncProducts = async () => {
     try {
       setSyncing(true)
-      await axios.post(`${API_URL}/api/vendor/sync-products`, null, {
+      await axios.post(`${apiBase}/api/vendor/sync-products`, null, {
         params: { shop },
       })
       alert('Product sync started! This may take a few minutes.')
@@ -97,7 +97,7 @@ function VendorDashboardContent() {
             Sync your catalog in minutes, accept Stripe payouts, and get instant access to our national buyer base.
           </p>
           <a
-            href={`${API_URL}/api/shopify/install?shop=YOUR_STORE.myshopify.com`}
+            href={`${apiBase}/api/shopify/install?shop=YOUR_STORE.myshopify.com`}
             className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
           >
             Connect Shopify
