@@ -44,6 +44,13 @@ class MockShopifySeed(BaseModel):
     shop: str
     store_name: str
     products: List[MockShopifyProduct]
+
+
+class ManualShopifyConnect(BaseModel):
+    shop: str
+    access_token: str
+    store_name: Optional[str] = None
+    owner_email: Optional[str] = None
 from shopify_service import ShopifyService
 from shippo_service import ShippoService
 from stripe_service import StripeService
@@ -53,6 +60,7 @@ from niche_config import get_niche_config, NicheSettings
 from agent_service import AgentService
 from market_data_service import MarketDataService
 from security import verify_password, get_password_hash, create_access_token
+from database import PRODUCTS, AFFILIATE_PRODUCTS, SHOPIFY_LISTINGS
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
@@ -687,6 +695,76 @@ async def shopify_callback(
     # Redirect to onboarding if available, otherwise vendor dashboard
     redirect_target = onboarding_url or f"{frontend_url}/vendor/dashboard?shop={shop}"
     return RedirectResponse(url=redirect_target)
+
+
+@app.post("/api/vendor/shopify/manual-connect")
+async def manual_shopify_connect(
+    payload: ManualShopifyConnect,
+    background_tasks: BackgroundTasks,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """
+    Allow vendors to provide a private app token directly and trigger a sync.
+    """
+    shop = payload.shop.strip().lower()
+    shop = shop.replace("https://", "").replace("http://", "")
+    if "/" in shop:
+        shop = shop.split("/")[0]
+    if not shop.endswith(".myshopify.com"):
+        shop = f"{shop}.myshopify.com"
+
+    access_token = payload.access_token.strip()
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Access token is required")
+
+    shop_details = await shopify_service.get_shop_details(shop, access_token)
+    if not shop_details:
+        raise HTTPException(status_code=400, detail="Unable to validate Shopify credentials")
+
+    store_ref = db.collection("stores").document(shop)
+    existing = await store_ref.get()
+    encrypted_token = shopify_service.encrypt_token(access_token)
+
+    base_store_data = {
+        "shop_domain": shop,
+        "store_name": payload.store_name or shop_details.get("name") or shop,
+        "owner_email": payload.owner_email or shop_details.get("email"),
+        "access_token_encrypted": encrypted_token,
+        "status": "pending_approval",
+        "stripe_account_id": None,
+        "created_at": datetime.utcnow(),
+        "last_sync_at": None,
+        "total_products": 0,
+        "total_sales": 0,
+        "commission_rate": 0.10,
+        "currency": shop_details.get("currency"),
+        "country": shop_details.get("country_name"),
+        "subscription_status": "not_subscribed",
+        "updated_at": datetime.utcnow()
+    }
+
+    if existing.exists:
+        update_fields = {
+            "store_name": base_store_data["store_name"],
+            "owner_email": base_store_data["owner_email"],
+            "access_token_encrypted": encrypted_token,
+            "status": "pending_approval",
+            "currency": base_store_data["currency"],
+            "country": base_store_data["country"],
+            "updated_at": base_store_data["updated_at"]
+        }
+        await store_ref.update(update_fields)
+    else:
+        await store_ref.set(base_store_data)
+
+    await shopify_service.ensure_webhooks(shop, access_token)
+    background_tasks.add_task(shopify_service.sync_products, shop)
+
+    return {
+        "shop": shop,
+        "store": base_store_data,
+        "status": "sync_started"
+    }
 
 
 @app.post("/api/shopify/webhook")
@@ -2391,6 +2469,39 @@ async def admin_dashboard(
             "total_commission": total_commission
         },
         "top_products": top_products
+    }
+
+
+@app.delete("/api/admin/products/{product_id}")
+async def admin_delete_product(
+    product_id: str,
+    admin_key: str,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Delete a product plus its related listings."""
+    require_admin_key(admin_key)
+    product_ref = db.collection(PRODUCTS).document(product_id)
+    snapshot = await product_ref.get()
+    if not snapshot.exists:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    await product_ref.delete()
+
+    async def _delete_related(collection_name: str) -> int:
+        deleted = 0
+        docs = db.collection(collection_name).where("product_id", "==", product_id).stream()
+        async for doc in docs:
+            await doc.reference.delete()
+            deleted += 1
+        return deleted
+
+    affiliate_deleted = await _delete_related(AFFILIATE_PRODUCTS)
+    shopify_deleted = await _delete_related(SHOPIFY_LISTINGS)
+
+    return {
+        "deleted_product_id": product_id,
+        "affiliate_listings_removed": affiliate_deleted,
+        "shopify_listings_removed": shopify_deleted
     }
 
 

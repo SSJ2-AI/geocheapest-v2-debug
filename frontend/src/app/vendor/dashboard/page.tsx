@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState, Suspense, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import axios from 'axios'
@@ -95,6 +96,7 @@ function VendorDashboardContent() {
           </h2>
           <p className="text-gray-600 mb-6">
             Sync your catalog in minutes, accept Stripe payouts, and get instant access to our national buyer base.
+            Use OAuth or paste a private app token on the vendor signup page if you don&apos;t have Partner permissions.
           </p>
           <a
             href={`${apiBase}/api/shopify/install?shop=YOUR_STORE.myshopify.com`}
@@ -102,6 +104,12 @@ function VendorDashboardContent() {
           >
             Connect Shopify
           </a>
+          <div className="mt-4 text-sm text-gray-500">
+            Prefer tokens?{' '}
+            <Link href="/vendor/signup" className="text-blue-600 hover:text-blue-700 font-semibold">
+              Use the manual integration guide
+            </Link>
+          </div>
         </div>
       </div>
     )

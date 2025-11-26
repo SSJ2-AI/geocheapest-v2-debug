@@ -45,6 +45,13 @@ const experienceTiles = [
     href: '/admin/dashboard'
   }
 ]
+const sortOptions = [
+  { value: 'featured', label: 'Featured' },
+  { value: 'price_low', label: 'Price: Low to High' },
+  { value: 'price_high', label: 'Price: High to Low' },
+  { value: 'rating', label: 'Customer rating' },
+  { value: 'alpha', label: 'Alphabetical' },
+]
 
 interface Product {
   id: string
@@ -67,6 +74,7 @@ export default function Home() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState<string | null>(null)
+  const [sortOption, setSortOption] = useState<string>('featured')
 
   useEffect(() => {
     fetchProducts()
@@ -85,6 +93,27 @@ export default function Home() {
       setLoading(false)
     }
   }
+
+  const sortedProducts = useMemo(() => {
+    const items = [...products]
+    switch (sortOption) {
+      case 'price_low':
+        items.sort((a, b) => (a.best_price ?? 0) - (b.best_price ?? 0))
+        break
+      case 'price_high':
+        items.sort((a, b) => (b.best_price ?? 0) - (a.best_price ?? 0))
+        break
+      case 'rating':
+        items.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+        break
+      case 'alpha':
+        items.sort((a, b) => a.name.localeCompare(b.name))
+        break
+      default:
+        break
+    }
+    return items
+  }, [products, sortOption])
 
   const categories = ['Pokemon', 'One Piece', 'Yu-Gi-Oh', 'Magic: The Gathering', 'Dragon Ball']
 
@@ -155,12 +184,12 @@ export default function Home() {
       <section className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl space-y-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">Trusted Canadian TCG index</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">Canada&apos;s TCG marketplace</p>
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-snug">
-              Price-check Pokémon, Yu-Gi-Oh!, MTG and One Piece boxes in seconds.
+              Canada&apos;s TCG Marketplace
             </h1>
             <p className="text-base text-gray-600">
-              GeoCheapest keeps the marketplace lean so shoppers, vendors, and admins each get a dedicated experience with transparent pricing.
+              Compare sealed products from Shopify vendors and affiliate partners, all in one clean feed.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <SearchBar onSearch={(query) => console.log('Search:', query)} />
@@ -210,7 +239,24 @@ export default function Home() {
       </section>
 
       {/* Products Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.3em] text-blue-500">Marketplace</p>
+            <h2 className="text-2xl font-bold text-gray-900">Browse sealed product deals</h2>
+          </div>
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value)}
+            className="w-full md:w-60 rounded-full border border-gray-200 px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[...Array(8)].map((_, i) => (
@@ -225,7 +271,7 @@ export default function Home() {
           </div>
         ) : products.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((product) => (
+            {sortedProducts.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>

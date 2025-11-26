@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
-import { Store, DollarSign, ShoppingBag, Users } from 'lucide-react'
+import { Store, DollarSign, ShoppingBag, Users, Trash2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 export default function AdminDashboard() {
@@ -24,6 +24,8 @@ export default function AdminDashboard() {
     rating: '',
     review_count: ''
   })
+  const [deleteInputId, setDeleteInputId] = useState('')
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
 
   const buildMetadata = () => {
     const metadata: Record<string, string> = {}
@@ -64,6 +66,38 @@ export default function AdminDashboard() {
       window.alert(`Failed to add product: ${detail}`)
     } finally {
       setAddingProduct(false)
+    }
+  }
+
+  const handleDeleteProduct = async (productId?: string) => {
+    const targetId = (productId || deleteInputId).trim()
+    if (!targetId) {
+      window.alert('Enter a product ID first.')
+      return
+    }
+    if (!adminKey) {
+      window.alert('Enter the admin key before deleting products.')
+      return
+    }
+    const confirmed = window.confirm(`Remove product ${targetId}? This action cannot be undone.`)
+    if (!confirmed) {
+      return
+    }
+    try {
+      setDeletingProductId(targetId)
+      await axios.delete(`${apiBase}/api/admin/products/${targetId}`, {
+        params: { admin_key: adminKey },
+      })
+      if (!productId) {
+        setDeleteInputId('')
+      }
+      window.alert('Product removed.')
+      handleLogin()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
+      window.alert(`Failed to delete product: ${detail}`)
+    } finally {
+      setDeletingProductId(null)
     }
   }
 
@@ -232,6 +266,33 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Delete Product */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-red-100">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Delete Product</h2>
+            <Trash2 className="w-5 h-5 text-red-500" />
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Paste a product ID (see Top Products below) to remove it and any related listings instantly.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              type="text"
+              value={deleteInputId}
+              onChange={(e) => setDeleteInputId(e.target.value)}
+              placeholder="e.g. d2464285-9c43..."
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            />
+            <button
+              onClick={() => handleDeleteProduct()}
+              disabled={ !!deletingProductId }
+              className="shrink-0 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:bg-gray-400"
+            >
+              {deletingProductId ? 'Deleting…' : 'Delete Product'}
+            </button>
+          </div>
+        </div>
+
         {/* Platform Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow-md p-6">
@@ -347,13 +408,21 @@ export default function AdminDashboard() {
           <h2 className="text-xl font-bold text-gray-900 mb-6">Top Products</h2>
           <div className="space-y-4">
             {dashboardData?.top_products.map((product: any) => (
-              <div key={product.id} className="flex justify-between items-center border-b pb-4">
+              <div key={product.id} className="flex flex-wrap items-start gap-3 justify-between border-b pb-4">
                 <div>
                   <p className="font-medium text-gray-900">{product.name}</p>
                   <p className="text-sm text-gray-600">{product.category}</p>
+                  <p className="text-xs text-gray-400 mt-1 break-all">ID: {product.id}</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right space-y-2">
                   <p className="font-bold text-gray-900">{product.total_sales} sales</p>
+                  <button
+                    onClick={() => handleDeleteProduct(product.id)}
+                    disabled={deletingProductId === product.id}
+                    className="text-sm text-red-600 hover:text-red-700 disabled:text-gray-400"
+                  >
+                    {deletingProductId === product.id ? 'Deleting…' : 'Remove'}
+                  </button>
                 </div>
               </div>
             ))}

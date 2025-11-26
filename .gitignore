@@ -76,3 +76,4 @@ add_test_product_api.py
 # Temporary Logs
 latest_logs.json
 service_desc.json
+backend/mock_db.pkl

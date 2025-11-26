@@ -3,6 +3,8 @@ Firestore database connection for GeoCheapest v2
 """
 import logging
 import os
+import pickle
+from pathlib import Path
 from typing import Optional
 from google.cloud import firestore
 
@@ -16,7 +18,31 @@ def _create_client() -> firestore.AsyncClient:
     return firestore.AsyncClient(project=project_id or None)
 
 
-_mock_db_data = {} # Global storage for the mock DB
+_mock_db_data = {}  # Global storage for the mock DB
+MOCK_DB_FILE = Path(__file__).with_name("mock_db.pkl")
+
+
+def _load_mock_db():
+    global _mock_db_data
+    if MOCK_DB_FILE.exists():
+        try:
+            with MOCK_DB_FILE.open("rb") as fh:
+                _mock_db_data = pickle.load(fh)
+                logger.info("Loaded mock DB snapshot from disk")
+        except Exception as exc:
+            logger.warning(f"Failed to load mock DB snapshot: {exc}")
+            _mock_db_data = {}
+
+
+def _persist_mock_db():
+    try:
+        with MOCK_DB_FILE.open("wb") as fh:
+            pickle.dump(_mock_db_data, fh)
+    except Exception as exc:
+        logger.warning(f"Failed to persist mock DB snapshot: {exc}")
+
+
+_load_mock_db()
 
 class MockCollection:
     def __init__(self, name):
@@ -97,6 +123,7 @@ class MockDocument:
         if self.col_name not in _mock_db_data:
             _mock_db_data[self.col_name] = {}
         _mock_db_data[self.col_name][self.id] = data
+        _persist_mock_db()
 
     async def update(self, data):
         logger.info(f"MOCK DB: Update {self.col_name}/{self.id}")
@@ -105,6 +132,7 @@ class MockDocument:
         if self.id not in _mock_db_data[self.col_name]:
              _mock_db_data[self.col_name][self.id] = {}
         _mock_db_data[self.col_name][self.id].update(data)
+        _persist_mock_db()
 
     async def get(self):
         exists = False
@@ -113,6 +141,14 @@ class MockDocument:
             exists = True
             data = _mock_db_data[self.col_name][self.id]
         return MockSnapshot(exists, self.id, data, self.col_name)
+
+    async def delete(self):
+        logger.info(f"MOCK DB: Delete {self.col_name}/{self.id}")
+        if self.col_name in _mock_db_data and self.id in _mock_db_data[self.col_name]:
+            del _mock_db_data[self.col_name][self.id]
+            if not _mock_db_data[self.col_name]:
+                del _mock_db_data[self.col_name]
+            _persist_mock_db()
 
 class MockSnapshot:
     def __init__(self, exists, doc_id, data, col_name="unknown"):
