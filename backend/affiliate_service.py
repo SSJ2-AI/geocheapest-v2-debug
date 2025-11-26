@@ -543,7 +543,6 @@ class AffiliateService:
     async def _scrape_amazon_page(self, url: str) -> Optional[Dict[str, Any]]:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
         }
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -557,11 +556,42 @@ class AffiliateService:
 
         soup = BeautifulSoup(resp.text, "html.parser")
         title = soup.select_one("#productTitle")
-        price_el = (
-            soup.select_one("#priceblock_ourprice")
-            or soup.select_one("#priceblock_dealprice")
-            or soup.select_one("span.a-price > span.a-offscreen")
-        )
+        price_selectors = [
+            "#corePriceDisplay_desktop_feature_div span.a-price span.a-offscreen",
+            "#corePriceDisplay_mobile_feature_div span.a-price span.a-offscreen",
+            "#corePriceDisplay_desktop_feature_div span.a-offscreen",
+            "#corePriceDisplay_mobile_feature_div span.a-offscreen",
+            "#priceblock_ourprice",
+            "#priceblock_dealprice",
+            "#priceblock_saleprice",
+            "span[data-a-color='base'] span.a-offscreen",
+            "span.a-price span.a-offscreen",
+        ]
+        price_text = None
+        price_value = 0.0
+        for selector in price_selectors:
+            candidate = soup.select_one(selector)
+            if candidate and candidate.get_text(strip=True):
+                candidate_text = candidate.get_text(strip=True)
+                candidate_value = self._parse_price(candidate_text)
+                if candidate_value > 0:
+                    price_text = candidate_text
+                    price_value = candidate_value
+                    break
+        # Collect all price candidates so we can fall back to the cheapest if needed
+        all_prices = []
+        for span in soup.select("span.a-offscreen"):
+            text = span.get_text(strip=True)
+            if text:
+                value = self._parse_price(text)
+                if value > 0:
+                    all_prices.append((value, text))
+        if all_prices:
+            all_prices.sort(key=lambda item: item[0])
+            cheapest_value, cheapest_text = all_prices[0]
+            if not price_text or cheapest_value + 0.01 < price_value or price_value == 0.0:
+                price_text = cheapest_text
+                price_value = cheapest_value
         image_el = soup.select_one("#landingImage")
         desc_items = soup.select("#feature-bullets ul li")
         rating_el = soup.select_one("span#acrPopover")
@@ -593,7 +623,7 @@ class AffiliateService:
 
         return {
             "title": title.get_text(strip=True) if title else None,
-            "price": price_el.get_text(strip=True) if price_el else None,
+            "price": price_text,
             "image": image_url,
             "description": description,
             "rating": rating,
