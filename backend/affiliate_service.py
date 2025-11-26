@@ -230,6 +230,30 @@ class AffiliateService:
             return "best_seller"
         return "available"
 
+    def _detect_game_from_title(self, title: Optional[str], fallback: str = "Other") -> str:
+        if not title:
+            return fallback
+        lowered = title.lower()
+        keyword_map = [
+            (["pokemon"], "Pokemon"),
+            (["magic: the gathering", "magic the gathering", "mtg"], "Magic: The Gathering"),
+            (["yu-gi-oh", "yugioh", "yu gi oh", "ygo"], "Yu-Gi-Oh"),
+            (["one piece"], "One Piece"),
+            (["lorcana"], "Lorcana"),
+            (["flesh and blood", "fab"], "Flesh and Blood"),
+            (["digimon"], "Digimon"),
+            (["weiss schwarz"], "Weiss Schwarz"),
+            (["dragon ball"], "Dragon Ball"),
+            (["final fantasy"], "Final Fantasy TCG"),
+            (["cardfight", "vanguard"], "Cardfight Vanguard"),
+            (["metazoo"], "MetaZoo"),
+            (["grand archive"], "Grand Archive"),
+        ]
+        for keywords, game in keyword_map:
+            if any(keyword in lowered for keyword in keywords):
+                return game
+        return fallback
+
     async def _upsert_product(self, normalized: Dict[str, Any]) -> str:
         async def find_by(field: str, value: str):
             if not value:
@@ -404,6 +428,13 @@ class AffiliateService:
             or "https://placehold.co/400?text=Amazon+Product"
         )
         
+        base_game = None
+        if overrides:
+            base_game = overrides.get("game") or overrides.get("category")
+        base_game = base_game or base_details.get("game") or base_details.get("category")
+        if isinstance(base_game, str) and base_game.strip().upper() in {"TBD", "UNKNOWN", "OTHER"}:
+            base_game = None
+        detected_game = self._detect_game_from_title(title)
         normalized = {
             "asin": asin,
             "title": title,
@@ -414,7 +445,7 @@ class AffiliateService:
             "rating": float(base_details.get("rating", 0) or base_details.get("stars", 0) or 0),
             "review_count": int(base_details.get("reviews", 0) or base_details.get("reviews_count", 0) or 0),
             "prime": False, 
-            "game": "TBD", 
+            "game": base_game or detected_game,
             "product_type": "sealed_product",
             "release_status": "available",
             "seller": base_details.get("seller") or "Amazon",
@@ -446,6 +477,10 @@ class AffiliateService:
         if price <= 0:
             raise ValueError("Unable to determine eBay price. Provide a price override.")
 
+        existing_game = details.get("game")
+        if isinstance(existing_game, str) and existing_game.strip().upper() in {"TBD", "UNKNOWN", "OTHER"}:
+            existing_game = None
+        detected_game = existing_game or self._detect_game_from_title(title)
         normalized = {
             "asin": f"ebay_{item_id}",
             "title": title,
@@ -456,7 +491,7 @@ class AffiliateService:
             "rating": float(details.get("rating", 0) or 0),
             "review_count": int(details.get("review_count", 0) or 0),
             "prime": False,
-            "game": details.get("game", "TBD"),
+            "game": detected_game,
             "product_type": "sealed_product",
             "release_status": "available",
             "seller": details.get("seller", "eBay Seller"),
@@ -477,7 +512,7 @@ class AffiliateService:
             "in_stock": True,
             "quantity": 1,
             "source": "ebay",
-            "game": "TBD",
+            "game": detected_game,
             "images": [normalized["image"]],
             "status": "active",
             "updated_at": datetime.utcnow(),
