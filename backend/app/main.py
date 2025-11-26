@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
+from uuid import uuid4
 import logging
 import os
 import json
@@ -20,6 +21,7 @@ from urllib.parse import urlencode
 import stripe
 from google.cloud import firestore, storage
 from google.api_core import exceptions as google_exceptions
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 from models import (
@@ -29,6 +31,19 @@ from models import (
     PaymentCustomerRequest, VendorSubscriptionRequest, VendorBillingPortalRequest,
     ShippingLabelRequest, ReturnLabelRequest, User, UserCreate, Token
 )
+class MockShopifyProduct(BaseModel):
+    name: str
+    price: float
+    quantity: int = 10
+    image_url: Optional[str] = None
+    category: str = "Pokemon"
+    description: Optional[str] = None
+
+
+class MockShopifySeed(BaseModel):
+    shop: str
+    store_name: str
+    products: List[MockShopifyProduct]
 from shopify_service import ShopifyService
 from shippo_service import ShippoService
 from stripe_service import StripeService
@@ -878,6 +893,90 @@ async def add_product_from_url_endpoint(
     except Exception as e:
         logger.exception("Error adding product from URL")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _ensure_product_document(
+    db: firestore.AsyncClient,
+    product: MockShopifyProduct
+) -> str:
+    query = db.collection("products").where("name", "==", product.name).limit(1).stream()
+    async for doc in query:
+        await doc.reference.update({
+            "updated_at": datetime.utcnow(),
+            "category": product.category,
+            "image_url": product.image_url or doc.to_dict().get("image_url"),
+            "description": product.description or doc.to_dict().get("description"),
+        })
+        return doc.id
+
+    ref = db.collection("products").document()
+    await ref.set({
+        "name": product.name,
+        "description": product.description or "",
+        "category": product.category,
+        "segment": "sealed",
+        "image_url": product.image_url or "",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "total_sales": 0
+    })
+    return ref.id
+
+
+@app.post("/api/admin/mock/shopify-store")
+async def seed_mock_shopify(
+    payload: MockShopifySeed,
+    admin_key: str,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    if admin_key != os.getenv("ADMIN_API_KEY"):
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    store_ref = db.collection("stores").document(payload.shop)
+    store_payload = {
+        "shop_domain": payload.shop,
+        "store_name": payload.store_name,
+        "status": "active",
+        "stripe_account_id": None,
+        "created_at": datetime.utcnow(),
+        "total_products": len(payload.products),
+        "total_sales": 0,
+        "commission_rate": 0.10,
+        "subscription_status": "mock"
+    }
+    existing_store = await store_ref.get()
+    if existing_store.exists:
+        await store_ref.update(store_payload)
+    else:
+        await store_ref.set(store_payload)
+
+    created = []
+    for prod in payload.products:
+        product_id = await _ensure_product_document(db, prod)
+        listing_id = f"{payload.shop}_{uuid4().hex[:8]}"
+        await db.collection("shopifyListings").document(listing_id).set({
+            "product_id": product_id,
+            "store_id": payload.shop,
+            "store_name": payload.store_name,
+            "shopify_product_id": f"mock_{uuid4().hex[:6]}",
+            "shopify_variant_id": f"mock_variant_{uuid4().hex[:6]}",
+            "price": prod.price,
+            "quantity": prod.quantity,
+            "status": "active",
+            "is_preorder": False,
+            "images": [prod.image_url] if prod.image_url else [],
+            "product_description": prod.description or "",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        })
+        created.append({
+            "product_id": product_id,
+            "listing_id": listing_id,
+            "name": prod.name,
+            "price": prod.price
+        })
+
+    return {"store": payload.shop, "created": created}
 
 @app.get("/api/admin/dashboard")
 async def get_admin_dashboard(

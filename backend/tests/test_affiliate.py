@@ -150,3 +150,31 @@ async def test_admin_add_from_url_accepts_manual_metadata(client, monkeypatch):
     body = response.json()
     assert body["product"]["title"] == "Manual Override Product"
     assert body["product"]["price"] == 149.99
+
+
+@pytest.mark.asyncio
+async def test_admin_seed_mock_shopify_store(client, monkeypatch):
+    admin_key = "super_secret_admin_key_change_in_production"
+    monkeypatch.setenv("ADMIN_API_KEY", admin_key)
+
+    seed_payload = {
+        "shop": "mock-store.myshopify.com",
+        "store_name": "Mock Store",
+        "products": [
+            {
+                "name": "Mock Shopify Booster",
+                "price": 129.99,
+                "quantity": 5,
+                "category": "Pokemon"
+            }
+        ]
+    }
+    resp = await client.post(
+        "/api/admin/mock/shopify-store",
+        params={"admin_key": admin_key},
+        json=seed_payload
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["store"] == seed_payload["shop"]
+    assert len(data["created"]) == 1
