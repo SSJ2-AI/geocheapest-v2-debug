@@ -7,8 +7,10 @@ import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
+from bs4 import BeautifulSoup
 
 from database import AFFILIATE_PRODUCTS, PRODUCTS, db
 
@@ -340,7 +342,7 @@ class AffiliateService:
     # ------------------------------------------------------------------
     # Unified Add from URL
     # ------------------------------------------------------------------
-    async def add_product_from_url(self, url: str) -> Dict[str, Any]:
+    async def add_product_from_url(self, url: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Scrape product details from a URL (Amazon or eBay) and add to DB.
         Returns the added product data.
@@ -366,13 +368,13 @@ class AffiliateService:
 
         domain = url.lower()
         if "amazon.ca" in domain or "amazon.com" in domain:
-            return await self._add_amazon_from_url(url)
+            return await self._add_amazon_from_url(url, overrides)
         elif "ebay.ca" in domain or "ebay.com" in domain:
-            return await self._add_ebay_from_url(url)
+            return await self._add_ebay_from_url(url, overrides)
         else:
             raise ValueError("Unsupported URL. Only Amazon and eBay are supported.")
 
-    async def _add_amazon_from_url(self, url: str) -> Dict[str, Any]:
+    async def _add_amazon_from_url(self, url: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # Extract ASIN
         asin_match = re.search(r"/dp/([A-Z0-9]{10})", url)
         if not asin_match:
@@ -385,42 +387,55 @@ class AffiliateService:
         
         # Try to get details from API
         details = await self.get_amazon_product_details(asin)
-        
-        # Fallback to mock/basic data if API fails or no key
-        if not details:
-            logger.warning(f"Amazon API failed for {asin}, using fallback data")
-            details = {
-                "title": f"Amazon Product {asin}",
-                "price": 0.0,
-                "image": "https://placehold.co/400?text=Amazon+Product",
-                "description": "Imported from Amazon",
-                "rating": 0,
-                "reviews_count": 0,
-                "in_stock": True
-            }
 
-        title = details.get("title") or details.get("product_title") or f"Amazon Product {asin}"
-        price_str = details.get("price") or details.get("current_price") or "0"
+        scraped = None
+        if not details or not details.get("price"):
+            scraped = await self._scrape_amazon_page(url)
+
+        base_details: Dict[str, Any] = details or {}
+        if scraped:
+            base_details.update(scraped)
+
+        if overrides:
+            base_details = self._apply_overrides(base_details, overrides)
+
+        if not base_details:
+            raise ValueError("Unable to fetch Amazon product details. Please provide metadata manually.")
+
+        title = base_details.get("title")
+        if not title and details:
+            title = details.get("title") or details.get("product_title")
+        if not title:
+            title = f"Amazon Product {asin}"
+        price_str = base_details.get("price") or base_details.get("current_price") or "0"
         price = self._parse_price(str(price_str))
-        image = details.get("main_image") or details.get("product_photo") or "https://placehold.co/400?text=Amazon+Product"
+        image = (
+            base_details.get("main_image")
+            or base_details.get("image")
+            or base_details.get("product_photo")
+            or "https://placehold.co/400?text=Amazon+Product"
+        )
         
         normalized = {
             "asin": asin,
             "title": title,
-            "description": details.get("description", ""),
+            "description": base_details.get("description", ""),
             "price": price,
             "image": image,
             "url": self.build_amazon_affiliate_url(asin),
-            "rating": float(details.get("rating", 0)),
-            "review_count": int(details.get("reviews", 0)),
+            "rating": float(base_details.get("rating", 0) or base_details.get("stars", 0) or 0),
+            "review_count": int(base_details.get("reviews", 0) or base_details.get("reviews_count", 0) or 0),
             "prime": False, 
             "game": "TBD", 
             "product_type": "sealed_product",
             "release_status": "available",
-            "seller": "Amazon",
-            "quantity": 10,
-            "in_stock": True
+            "seller": base_details.get("seller") or "Amazon",
+            "quantity": int(base_details.get("quantity") or 10),
+            "in_stock": bool(base_details.get("in_stock", True))
         }
+
+        if normalized["price"] <= 0:
+            raise ValueError("Unable to determine product price. Provide a price override.")
         
         # Upsert
         product_id = await self._upsert_product(normalized)
@@ -428,30 +443,37 @@ class AffiliateService:
         
         return {**normalized, "id": product_id}
 
-    async def _add_ebay_from_url(self, url: str) -> Dict[str, Any]:
-        # Mock eBay scraping for now
-        # Extract Item ID
+    async def _add_ebay_from_url(self, url: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         item_id_match = re.search(r"/itm/(\d+)", url)
         item_id = item_id_match.group(1) if item_id_match else "unknown"
         
-        logger.info(f"Mocking eBay scrape for {url}")
-        
+        scraped = await self._scrape_ebay_page(url)
+        details = scraped or {}
+
+        if overrides:
+            details = self._apply_overrides(details, overrides)
+
+        title = details.get("title") or f"eBay Product {item_id}"
+        price = self._parse_price(details.get("price"))
+        if price <= 0:
+            raise ValueError("Unable to determine eBay price. Provide a price override.")
+
         normalized = {
-            "asin": f"ebay_{item_id}", # Use item_id as pseudo-ASIN
-            "title": f"eBay Product {item_id}",
-            "description": "Imported from eBay",
-            "price": 99.99, # Mock price
-            "image": "https://placehold.co/400?text=eBay+Product",
-            "url": url, 
-            "rating": 0,
-            "review_count": 0,
+            "asin": f"ebay_{item_id}",
+            "title": title,
+            "description": details.get("description", "Imported from eBay"),
+            "price": price,
+            "image": details.get("image") or "https://placehold.co/400?text=eBay+Product",
+            "url": url,
+            "rating": float(details.get("rating", 0) or 0),
+            "review_count": int(details.get("review_count", 0) or 0),
             "prime": False,
-            "game": "TBD",
+            "game": details.get("game", "TBD"),
             "product_type": "sealed_product",
             "release_status": "available",
-            "seller": "eBay Seller",
-            "quantity": 1,
-            "in_stock": True
+            "seller": details.get("seller", "eBay Seller"),
+            "quantity": int(details.get("quantity") or 1),
+            "in_stock": bool(details.get("in_stock", True))
         }
         
         product_id = await self._upsert_product(normalized)
@@ -477,6 +499,115 @@ class AffiliateService:
         await db.collection(AFFILIATE_PRODUCTS).document(doc_id).set(data)
         
         return {**normalized, "id": product_id}
+
+    def _apply_overrides(self, data: Dict[str, Any], overrides: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not overrides:
+            return data
+        merged = {**data}
+        for key, value in overrides.items():
+            if value in (None, ""):
+                continue
+            if key == "price":
+                merged["price"] = self._parse_price(value)
+            elif key == "rating":
+                merged["rating"] = float(value)
+            elif key in ("review_count", "reviews"):
+                merged["review_count"] = int(value)
+            else:
+                merged[key] = value
+        return merged
+
+    async def _scrape_amazon_page(self, url: str) -> Optional[Dict[str, Any]]:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning("Amazon scrape failed %s: %s", resp.status_code, url)
+                return None
+        except Exception as exc:
+            logger.error("Amazon scrape error: %s", exc)
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        title = soup.select_one("#productTitle")
+        price_el = (
+            soup.select_one("#priceblock_ourprice")
+            or soup.select_one("#priceblock_dealprice")
+            or soup.select_one("span.a-price > span.a-offscreen")
+        )
+        image_el = soup.select_one("#landingImage")
+        desc_items = soup.select("#feature-bullets ul li")
+        rating_el = soup.select_one("span#acrPopover")
+        reviews_el = soup.select_one("#acrCustomerReviewText")
+
+        description = ""
+        if desc_items:
+            description = "\n".join(
+                li.get_text(strip=True) for li in desc_items if li.get_text(strip=True)
+            )
+
+        rating = 0.0
+        if rating_el and rating_el.get("title"):
+            try:
+                rating = float(rating_el["title"].split(" ")[0])
+            except ValueError:
+                rating = 0.0
+
+        review_count = 0
+        if reviews_el:
+            review_text = reviews_el.get_text(strip=True).replace(",", "")
+            digits = re.findall(r"\d+", review_text)
+            if digits:
+                review_count = int(digits[0])
+
+        image_url = None
+        if image_el:
+            image_url = image_el.get("data-old-hires") or image_el.get("src")
+
+        return {
+            "title": title.get_text(strip=True) if title else None,
+            "price": price_el.get_text(strip=True) if price_el else None,
+            "image": image_url,
+            "description": description,
+            "rating": rating,
+            "reviews": review_count,
+            "in_stock": True
+        }
+
+    async def _scrape_ebay_page(self, url: str) -> Optional[Dict[str, Any]]:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return None
+        except Exception as exc:
+            logger.error("eBay scrape error: %s", exc)
+            return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        title_el = soup.select_one("#itemTitle")
+        price_el = soup.select_one("#prcIsum") or soup.select_one("span[itemprop='price']")
+        image_el = soup.select_one("#icImg")
+        desc_el = soup.select_one("#viTabs_0_is")
+
+        return {
+            "title": title_el.get_text(strip=True).replace("Details about  ", "") if title_el else None,
+            "price": price_el.get_text(strip=True) if price_el else None,
+            "image": image_el.get("src") if image_el else None,
+            "description": desc_el.get_text(strip=True) if desc_el else "",
+            "seller": None,
+            "rating": 0,
+            "review_count": 0,
+            "in_stock": True
+        }
 
 async def amazon_sync_loop(service: AffiliateService):
     """Background cron loop to keep Amazon listings fresh."""

@@ -719,6 +719,10 @@ async def get_products(
             product_data["is_preorder"] = best_listing.get("is_preorder", False)
             product_data["url"] = best_listing.get("url", "")
             product_data["asin"] = best_listing.get("asin")
+            product_data["rating"] = best_listing.get("rating")
+            product_data["review_count"] = best_listing.get("review_count")
+            if not product_data.get("description"):
+                product_data["description"] = best_listing.get("description", "")
         else:
             # Ensure fields exist even when no listing is found
             product_data["best_price"] = None
@@ -728,6 +732,8 @@ async def get_products(
             product_data["is_preorder"] = False
             product_data["url"] = ""
             product_data["asin"] = None
+            product_data["rating"] = None
+            product_data["review_count"] = None
         
         products.append(product_data)
     
@@ -854,6 +860,9 @@ async def add_product_from_url_endpoint(
     body = await request.json()
     url = body.get("url")
     admin_key = body.get("admin_key")
+    metadata = body.get("metadata") or {}
+    if metadata and not isinstance(metadata, dict):
+        raise HTTPException(status_code=400, detail="metadata must be an object")
     
     if admin_key != os.getenv("ADMIN_API_KEY"):
         raise HTTPException(status_code=403, detail="Invalid admin key")
@@ -862,7 +871,7 @@ async def add_product_from_url_endpoint(
         raise HTTPException(status_code=400, detail="URL is required")
 
     try:
-        result = await affiliate_service.add_product_from_url(url)
+        result = await affiliate_service.add_product_from_url(url, metadata)
         return {"status": "success", "product": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1469,7 +1478,10 @@ async def get_all_listings_with_shipping(
                 "total_price": product_price + shipping_cost,
                 "in_stock": listing["quantity"] >= quantity or listing.get("is_preorder", False),
                 "is_preorder": listing.get("is_preorder", False),
-                "url": None
+                "url": None,
+                "rating": None,
+                "review_count": None,
+                "description": listing.get("product_description")
             })
     
     # Affiliate listings (shipping calculated by affiliate)
@@ -1499,7 +1511,10 @@ async def get_all_listings_with_shipping(
                 "total_price": product_price + shipping_cost,
                 "in_stock": True,
                 "is_preorder": False,
-                "url": affiliate_url
+                "url": affiliate_url,
+                "rating": listing.get("vendor_rating") or listing.get("rating"),
+                "review_count": listing.get("review_count"),
+                "description": listing.get("description")
             })
     
     return listings

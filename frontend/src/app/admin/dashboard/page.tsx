@@ -14,6 +14,58 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
   const [syncingAmazon, setSyncingAmazon] = useState(false)
+  const [productUrl, setProductUrl] = useState('')
+  const [addingProduct, setAddingProduct] = useState(false)
+  const [productOverrides, setProductOverrides] = useState({
+    title: '',
+    price: '',
+    image: '',
+    description: '',
+    rating: '',
+    review_count: ''
+  })
+
+  const buildMetadata = () => {
+    const metadata: Record<string, string> = {}
+    Object.entries(productOverrides).forEach(([key, value]) => {
+      if (value.trim().length > 0) {
+        metadata[key] = value.trim()
+      }
+    })
+    return metadata
+  }
+
+  const handleAddProduct = async () => {
+    if (!productUrl) {
+      window.alert('Paste an Amazon or eBay link first.')
+      return
+    }
+
+    try {
+      setAddingProduct(true)
+      await axios.post(`${API_URL}/api/admin/products/add_from_url`, {
+        url: productUrl.trim(),
+        admin_key: adminKey,
+        metadata: buildMetadata()
+      })
+      window.alert('Product added successfully!')
+      setProductUrl('')
+      setProductOverrides({
+        title: '',
+        price: '',
+        image: '',
+        description: '',
+        rating: '',
+        review_count: ''
+      })
+      handleLogin()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
+      window.alert(`Failed to add product: ${detail}`)
+    } finally {
+      setAddingProduct(false)
+    }
+  }
 
   const handleLogin = async () => {
     if (!adminKey) {
@@ -112,52 +164,72 @@ export default function AdminDashboard() {
 
         {/* Unified Add Product Form */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Add Product (Amazon/eBay)</h2>
-          <div className="flex gap-4">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Add Affiliate Product</h2>
+          <div className="space-y-4">
             <input
               type="text"
-              placeholder="Paste Amazon or eBay Affiliate URL"
-              id="affiliate-url"
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={productUrl}
+              onChange={(e) => setProductUrl(e.target.value)}
+              placeholder="Paste Amazon or eBay affiliate URL"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <button
-              onClick={async () => {
-                const url = (document.getElementById('affiliate-url') as HTMLInputElement)?.value
-                if (!url) {
-                  window.alert('Please enter a URL')
-                  return
-                }
-
-                try {
-                  await axios.post(`${API_URL}/api/admin/products/add_from_url`, {
-                    url,
-                    admin_key: adminKey
-                  })
-                  const successMsg = 'Product added successfully!';
-                  console.log(successMsg);
-                  if (typeof window !== 'undefined') {
-                    window.alert(successMsg);
-                  }
-                  // Clear input
-                  ; (document.getElementById('affiliate-url') as HTMLInputElement).value = ''
-                  handleLogin() // Refresh data
-                } catch (error: any) {
-                  const errorDetail = error?.response?.data?.detail || error?.message || 'Unknown error';
-                  const errorMsg = `Failed to add product: ${errorDetail}`;
-                  console.error(errorMsg, error);
-                  if (typeof window !== 'undefined') {
-                    window.alert(errorMsg);
-                  }
-                }
-              }}
-              className="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition-colors"
-            >
-              Add Product
-            </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input
+                type="text"
+                value={productOverrides.title}
+                onChange={(e) => setProductOverrides({ ...productOverrides, title: e.target.value })}
+                placeholder="Product title (optional override)"
+                className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="text"
+                value={productOverrides.price}
+                onChange={(e) => setProductOverrides({ ...productOverrides, price: e.target.value })}
+                placeholder="Price (ex. 149.99)"
+                className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="text"
+                value={productOverrides.image}
+                onChange={(e) => setProductOverrides({ ...productOverrides, image: e.target.value })}
+                placeholder="Image URL (optional)"
+                className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="text"
+                value={productOverrides.rating}
+                onChange={(e) => setProductOverrides({ ...productOverrides, rating: e.target.value })}
+                placeholder="Rating (ex. 4.7)"
+                className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="text"
+                value={productOverrides.review_count}
+                onChange={(e) => setProductOverrides({ ...productOverrides, review_count: e.target.value })}
+                placeholder="Review count"
+                className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <textarea
+              value={productOverrides.description}
+              onChange={(e) => setProductOverrides({ ...productOverrides, description: e.target.value })}
+              placeholder="Short description / key bullet points"
+              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              rows={3}
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                We’ll scrape Amazon/eBay for details automatically. Provide overrides if the scrape can’t find a price or image.
+              </p>
+              <button
+                onClick={handleAddProduct}
+                disabled={addingProduct}
+                className="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400"
+              >
+                {addingProduct ? 'Adding…' : 'Add Product'}
+              </button>
+            </div>
           </div>
-          <p className="text-sm text-gray-500 mt-2">
-            Supported: Amazon.ca, eBay.ca. Product details will be automatically scraped.
-          </p>
         </div>
 
         {/* Platform Stats */}

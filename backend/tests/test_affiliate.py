@@ -8,7 +8,8 @@ from app.main import affiliate_service, shippo_service
 
 @pytest.mark.asyncio
 async def test_admin_add_from_url_creates_affiliate_listing(client, monkeypatch):
-    monkeypatch.setenv("ADMIN_API_KEY", "secret")
+    admin_key = "super_secret_admin_key_change_in_production"
+    monkeypatch.setenv("ADMIN_API_KEY", admin_key)
 
     async def fake_details(asin: str):
         return {
@@ -31,7 +32,7 @@ async def test_admin_add_from_url_creates_affiliate_listing(client, monkeypatch)
         "/api/admin/products/add_from_url",
         json={
             "url": "https://www.amazon.ca/dp/TEST123456",
-            "admin_key": "secret"
+            "admin_key": admin_key
         }
     )
     assert response.status_code == 200
@@ -117,3 +118,35 @@ async def test_cart_optimize_allows_guest_checkout(client, mock_firestore, monke
     assert payload["items"]
     assert payload["total_price"] > 0
     assert payload["strategy"] in ["split", f"bundle:store-a"]
+
+
+@pytest.mark.asyncio
+async def test_admin_add_from_url_accepts_manual_metadata(client, monkeypatch):
+    admin_key = "super_secret_admin_key_change_in_production"
+    monkeypatch.setenv("ADMIN_API_KEY", admin_key)
+    monkeypatch.setattr(
+        affiliate_service,
+        "get_amazon_product_details",
+        AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        affiliate_service,
+        "_scrape_amazon_page",
+        AsyncMock(return_value=None)
+    )
+
+    payload = {
+        "url": "https://www.amazon.ca/dp/MANUAL1234A",
+        "admin_key": admin_key,
+        "metadata": {
+            "title": "Manual Override Product",
+            "price": "149.99",
+            "image": "https://example.com/manual.jpg",
+            "description": "Manual description"
+        }
+    }
+    response = await client.post("/api/admin/products/add_from_url", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["product"]["title"] == "Manual Override Product"
+    assert body["product"]["price"] == 149.99

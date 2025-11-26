@@ -1,7 +1,7 @@
 'use client'
 
 import { useCartStore } from '@/store/cartStore'
-import { ShoppingCart, Tag } from 'lucide-react'
+import { ShoppingCart, Tag, Star } from 'lucide-react'
 
 interface Product {
   id: string
@@ -15,6 +15,8 @@ interface Product {
   in_stock: boolean
   is_preorder: boolean
   url?: string
+  rating?: number
+  review_count?: number
 }
 
 export function ProductCard({ product }: { product: Product }) {
@@ -87,6 +89,22 @@ export function ProductCard({ product }: { product: Product }) {
           <Tag className="w-4 h-4 text-gray-500" />
           <span className="text-sm text-gray-600">{product.source_name}</span>
         </div>
+
+        {product.rating && product.rating > 0 && (
+          <div className="flex items-center gap-1 text-sm text-yellow-600 mb-2">
+            <Star className="w-4 h-4 fill-yellow-500 text-yellow-500" />
+            <span>{product.rating.toFixed(1)} / 5</span>
+            {product.review_count ? (
+              <span className="text-gray-500">
+                ({product.review_count.toLocaleString()} reviews)
+              </span>
+            ) : null}
+          </div>
+        )}
+
+        {product.description && (
+          <p className="text-sm text-gray-600 mb-4 line-clamp-2">{product.description}</p>
+        )}
 
         <div className="flex items-center justify-between">
           <div>
