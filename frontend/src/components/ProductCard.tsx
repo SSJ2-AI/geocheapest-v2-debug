@@ -19,8 +19,15 @@ interface Product {
 
 export function ProductCard({ product }: { product: Product }) {
   const addItem = useCartStore((state) => state.addItem)
+  const source = product.source?.toLowerCase() || ''
+  const isAffiliate =
+    source === 'affiliate' ||
+    product.source_name?.toLowerCase().includes('amazon') ||
+    product.source_name?.toLowerCase().includes('ebay') ||
+    false
 
   const handleAddToCart = () => {
+    if (isAffiliate) return
     addItem({
       product_id: product.id,
       name: product.name,
@@ -33,7 +40,7 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group">
       <div className="relative">
-        {product.url ? (
+        {isAffiliate && product.url ? (
           <a href={product.url} target="_blank" rel="noopener noreferrer">
             <img
               src={product.image_url || '/placeholder-product.jpg'}
@@ -53,7 +60,7 @@ export function ProductCard({ product }: { product: Product }) {
             Pre-Order
           </span>
         )}
-        {!product.is_preorder && product.source === 'affiliate' && (
+        {!product.is_preorder && isAffiliate && (
           <span className="absolute top-2 left-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-medium">
             Partner Seller
           </span>
@@ -64,7 +71,7 @@ export function ProductCard({ product }: { product: Product }) {
       </div>
 
       <div className="p-4">
-        {product.url ? (
+        {isAffiliate && product.url ? (
           <a href={product.url} target="_blank" rel="noopener noreferrer" className="block hover:text-blue-600 transition-colors">
             <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 h-14">
               {product.name}
@@ -97,11 +104,7 @@ export function ProductCard({ product }: { product: Product }) {
 
 
           {/* Show affiliate "Buy" button if product has a URL and is from an affiliate source */}
-          {(product.url && (
-            product.source?.toLowerCase().includes('affiliate') ||
-            product.source?.toLowerCase().includes('amazon') ||
-            product.source?.toLowerCase().includes('ebay')
-          )) ? (
+          {isAffiliate && product.url ? (
             <a
               href={product.url}
               target="_blank"
@@ -109,7 +112,7 @@ export function ProductCard({ product }: { product: Product }) {
               className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
             >
               <ShoppingCart className="w-4 h-4" />
-              Buy on {product.source_name}
+              Buy on {product.source_name || 'Partner Store'}
             </a>
           ) : (
             <button

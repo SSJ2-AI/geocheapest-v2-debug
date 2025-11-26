@@ -42,6 +42,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -89,12 +90,13 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     duration = (datetime.utcnow() - start_time).total_seconds()
     
+    client_ip = request.client.host if request.client else "unknown"
     log_data = {
         "method": request.method,
         "path": request.url.path,
         "status_code": response.status_code,
         "duration": duration,
-        "ip": request.client.host
+        "ip": client_ip
     }
     logger.info(json.dumps(log_data))
     return response
@@ -279,6 +281,31 @@ async def get_current_user(
         raise credentials_exception
         
     return User(**user_data)
+
+
+async def get_optional_user(
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+    db: firestore.AsyncClient = Depends(get_db)
+) -> Optional[User]:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, os.getenv("SECRET_KEY", "your-secret-key-change-in-production"), algorithms=["HS256"])
+        email: str = payload.get("sub")
+        if email is None:
+            return None
+    except JWTError:
+        return None
+
+    users_ref = db.collection("users")
+    query = users_ref.where("email", "==", email).limit(1)
+    docs = query.stream()
+
+    async for doc in docs:
+        user_data = doc.to_dict()
+        user_data["id"] = doc.id
+        return User(**user_data)
+    return None
 
 
 @app.post("/api/auth/signup", response_model=Token)
@@ -1284,15 +1311,17 @@ async def get_product(
 @app.post("/api/cart/optimize")
 async def optimize_cart(
     request: CartOptimizationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: firestore.AsyncClient = Depends(get_db)
 ):
     """
     Optimize cart to find cheapest vendor per item including shipping.
-    Compares "Split Order" (cheapest per item) vs "Bundled Order" (all from one vendor).
+    Returns comparison between split-order (per-item cheapest) and best single-vendor bundle.
     """
-    # 1. Fetch all valid listings for every item
-    cart_listings = {} # {product_id: [listings]}
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    cart_listings: Dict[str, List[Dict[str, Any]]] = {}
     for item in request.items:
         listings = await get_all_listings_with_shipping(
             db, item.product_id, item.quantity, request.shipping_address
@@ -1301,27 +1330,101 @@ async def optimize_cart(
             raise HTTPException(status_code=400, detail=f"Product {item.product_id} not available")
         cart_listings[item.product_id] = listings
 
-    # 2. Strategy A: Split Order (Greedy - Cheapest per item)
-    split_total = 0
-    split_selection = []
-    for item in request.items:
-        # Sort by total_price (price + shipping)
-        sorted_listings = sorted(cart_listings[item.product_id], key=lambda x: x["total_price"])
+    def format_selection(listing: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "product_id": listing["product_id"],
+            "listing_id": listing["listing_id"],
+            "source": listing["source"],
+            "source_name": listing["source_name"],
+            "store_id": listing["store_id"],
+            "quantity": listing["requested_quantity"],
+            "unit_price": listing["unit_price"],
+            "product_total": listing["product_price"],
+            "shipping_total": listing["shipping_cost"],
+            "total_price": listing["total_price"],
+            "url": listing.get("url"),
+            "is_preorder": listing.get("is_preorder", False)
+        }
+
+    # Strategy A: split order, always pick the cheapest in-stock listing per product
+    split_items: List[Dict[str, Any]] = []
+    split_product_total = 0.0
+    split_shipping_total = 0.0
+    for product_id, listings in cart_listings.items():
+        sorted_listings = sorted(
+            listings,
+            key=lambda x: (not x["in_stock"], x["total_price"])
+        )
         best = sorted_listings[0]
-        split_total += best["total_price"]
-        split_selection.append({
-            "product_id": item.product_id,
-            "quantity": item.quantity,
-            "listing": best
+        split_items.append(format_selection(best))
+        split_product_total += best["product_price"]
+        split_shipping_total += best["shipping_cost"]
+
+    split_summary = {
+        "name": "split",
+        "items": split_items,
+        "total_product_price": round(split_product_total, 2),
+        "total_shipping_cost": round(split_shipping_total, 2),
+        "total_price": round(split_product_total + split_shipping_total, 2)
+    }
+
+    # Strategy B: bundled order (single Shopify store that can fulfill everything)
+    bundle_summary = None
+    target_products = set(cart_listings.keys())
+    store_map: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for product_id, listings in cart_listings.items():
+        for listing in listings:
+            if listing["source"] != "shopify" or not listing["store_id"]:
+                continue
+            store_map.setdefault(listing["store_id"], {})[product_id] = listing
+
+    bundle_options = []
+    for store_id, product_map in store_map.items():
+        if set(product_map.keys()) != target_products:
+            continue
+        store_items = []
+        product_total = 0.0
+        shipping_total = 0.0
+        for pid in target_products:
+            listing = product_map[pid]
+            store_items.append(format_selection(listing))
+            product_total += listing["product_price"]
+            shipping_total += listing["shipping_cost"]
+        bundle_options.append({
+            "name": f"bundle:{store_id}",
+            "items": store_items,
+            "total_product_price": round(product_total, 2),
+            "total_shipping_cost": round(shipping_total, 2),
+            "total_price": round(product_total + shipping_total, 2)
         })
 
-    # Fallback return to fix syntax error
+    if bundle_options:
+        bundle_summary = min(bundle_options, key=lambda x: x["total_price"])
+
+    strategies = [split_summary]
+    if bundle_summary:
+        strategies.append(bundle_summary)
+    strategies.sort(key=lambda x: x["total_price"])
+    recommended = strategies[0]
+    comparison_target = strategies[1] if len(strategies) > 1 else None
+    savings = 0.0
+    if comparison_target:
+        savings = max(
+            comparison_target["total_price"] - recommended["total_price"], 0.0
+        )
+
     return {
-        "optimization_type": "split",
-        "items": split_selection,
-        "total_amount": split_total,
-        "savings": 0,
-        "currency": "CAD"
+        "strategy": recommended["name"],
+        "items": recommended["items"],
+        "total_product_price": recommended["total_product_price"],
+        "total_shipping_cost": recommended["total_shipping_cost"],
+        "total_price": recommended["total_price"],
+        "savings": round(savings, 2),
+        "currency": "CAD",
+        "comparison": {
+            "split": split_summary,
+            "bundled": bundle_summary
+        }
     }
 
 
@@ -1350,15 +1453,23 @@ async def get_all_listings_with_shipping(
                 shipping_address
             )
             
-            product_price = listing["price"] * quantity
+            unit_price = float(listing["price"])
+            product_price = unit_price * quantity
+            shipping_cost = float(shipping_cost)
             listings.append({
                 "source": "shopify",
                 "source_name": listing["store_name"],
                 "store_id": listing["store_id"],
                 "listing_id": doc.id,
+                "product_id": product_id,
+                "unit_price": unit_price,
+                "requested_quantity": quantity,
                 "product_price": product_price,
                 "shipping_cost": shipping_cost,
-                "total_price": product_price + shipping_cost
+                "total_price": product_price + shipping_cost,
+                "in_stock": listing["quantity"] >= quantity or listing.get("is_preorder", False),
+                "is_preorder": listing.get("is_preorder", False),
+                "url": None
             })
     
     # Affiliate listings (shipping calculated by affiliate)
@@ -1370,18 +1481,25 @@ async def get_all_listings_with_shipping(
     async for doc in affiliate_docs:
         listing = doc.to_dict()
         if listing["in_stock"]:
-            product_price = listing["price"] * quantity
-            # Estimate shipping for affiliates (or get from API if available)
-            shipping_cost = listing.get("estimated_shipping", 10.0)
+            unit_price = float(listing["price"])
+            product_price = unit_price * quantity
+            shipping_cost = float(listing.get("estimated_shipping", 10.0))
+            affiliate_url = listing.get("affiliate_url") or affiliate_service.build_amazon_affiliate_url(listing.get("asin", ""))
             
             listings.append({
                 "source": "affiliate",
                 "source_name": listing["affiliate_name"],
                 "store_id": None,
                 "listing_id": doc.id,
+                "product_id": product_id,
+                "unit_price": unit_price,
+                "requested_quantity": quantity,
                 "product_price": product_price,
                 "shipping_cost": shipping_cost,
-                "total_price": product_price + shipping_cost
+                "total_price": product_price + shipping_cost,
+                "in_stock": True,
+                "is_preorder": False,
+                "url": affiliate_url
             })
     
     return listings

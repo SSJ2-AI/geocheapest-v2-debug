@@ -9,10 +9,36 @@ import { loadStripe } from '@stripe/stripe-js'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
+interface OptimizedItem {
+  product_id: string
+  listing_id: string
+  source: string
+  source_name: string
+  store_id?: string | null
+  quantity: number
+  unit_price: number
+  product_total: number
+  shipping_total: number
+  total_price: number
+  url?: string
+  is_preorder?: boolean
+}
+
+interface OptimizationResponse {
+  strategy: string
+  items: OptimizedItem[]
+  total_product_price: number
+  total_shipping_cost: number
+  total_price: number
+  savings: number
+  currency: string
+  comparison?: Record<string, unknown>
+}
+
 export default function CheckoutPage() {
   const router = useRouter()
   const { items, clearCart } = useCartStore()
-  const [optimizedCart, setOptimizedCart] = useState<any>(null)
+  const [optimizedCart, setOptimizedCart] = useState<OptimizationResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [shippingAddress, setShippingAddress] = useState({
     name: '',
@@ -262,11 +288,30 @@ export default function CheckoutPage() {
 
             {optimizedCart ? (
               <>
+                <div className="mb-4 bg-blue-50 border border-blue-100 text-blue-800 rounded-lg p-3 text-sm font-medium">
+                  Recommended strategy: {optimizedCart.strategy.replace('bundle:', 'Single Vendor: ')}
+                  {optimizedCart.savings > 0 && (
+                    <span className="ml-2 text-green-600">
+                      (You save ${optimizedCart.savings.toFixed(2)})
+                    </span>
+                  )}
+                </div>
+
                 <div className="space-y-4 mb-6">
-                  {optimizedCart.items.map((item: any, index: number) => (
+                  {optimizedCart.items.map((item, index) => (
                     <div key={index} className="flex justify-between text-sm">
                       <span className="text-gray-600">
                         Item {index + 1} from {item.source_name}
+                        {item.source === 'affiliate' && item.url && (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 text-blue-600 underline"
+                          >
+                            View
+                          </a>
+                        )}
                       </span>
                       <span className="font-medium">${item.total_price.toFixed(2)}</span>
                     </div>

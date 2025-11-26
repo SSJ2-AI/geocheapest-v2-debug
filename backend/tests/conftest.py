@@ -1,39 +1,30 @@
-import pytest
-from httpx import AsyncClient
-from unittest.mock import MagicMock, AsyncMock
-import sys
 import os
+import sys
 
-# Add app directory to path so we can import app.main
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.main import app, get_db
+from app.main import app, get_db  # noqa: E402
+from database import MockFirestoreClient, _mock_db_data  # noqa: E402
+
 
 @pytest.fixture
 def mock_firestore():
-    mock_client = AsyncMock()
-    mock_collection = MagicMock()
-    mock_doc = AsyncMock()
-    
-    # Setup chain: client.collection().document()
-    mock_client.collection.return_value = mock_collection
-    mock_collection.document.return_value = mock_doc
-    
-    # Setup doc.get() to return a mock snapshot
-    mock_snapshot = MagicMock()
-    mock_snapshot.exists = True
-    mock_snapshot.to_dict.return_value = {}
-    mock_doc.get.return_value = mock_snapshot
-    
-    return mock_client
+    _mock_db_data.clear()
+    return MockFirestoreClient()
 
-@pytest.fixture
+
+@pytest_asyncio.fixture
 async def client(mock_firestore):
-    # Override the dependency
-    app.dependency_overrides[get_db] = lambda: mock_firestore
-    
+    async def _get_mock_db():
+        return mock_firestore
+
+    app.dependency_overrides[get_db] = _get_mock_db
+
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
-    
-    # Clean up
+
     app.dependency_overrides = {}
