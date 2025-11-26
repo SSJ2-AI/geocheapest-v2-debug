@@ -10,37 +10,21 @@ import axios from 'axios'
 import { useMemo } from 'react'
 import { getApiUrl } from '@/lib/api'
 
-const marketplaceHighlights = [
-  {
-    title: 'Verified Partner Stores',
-    description: 'Canadian hobby shops and vetted Amazon/eBay partners with transparent ratings and stock data.'
-  },
-  {
-    title: 'Best Price Engine',
-    description: 'Real-time price comparison across Shopify vendors and affiliate listings, including ship cost optimization.'
-  },
-  {
-    title: 'Secure Checkout',
-    description: 'Stripe-powered split checkout for multi-vendor carts plus instant affiliate redirects when needed.'
-  }
-]
+const featureTitles = ['Verified Partner Stores', 'Best Price Engine', 'Secure Checkout']
 
 const experienceTiles = [
   {
     title: 'Customers',
-    description: 'Create a free profile to save carts, compare shipping, and get alerted when sealed product prices drop.',
     action: 'Customer portal',
     href: '/signup'
   },
   {
     title: 'Vendors',
-    description: 'Connect Shopify or upload affiliate links, sync Shippo labels, and manage payouts from one dashboard.',
     action: 'Vendor onboarding',
     href: '/vendor/signup'
   },
   {
     title: 'Admins',
-    description: 'Monitor ingestion, approve stores, and push price updates with the protected super-admin workspace.',
     action: 'Admin access',
     href: '/admin/dashboard'
   }
@@ -125,10 +109,10 @@ export default function Home() {
           <div className="flex h-16 items-center justify-between gap-6">
             <Link href="/" className="flex items-center gap-3">
               <span className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">
-                GC
+                GT
               </span>
               <div className="leading-tight">
-                <p className="text-base font-bold text-gray-900">GeoCheapest</p>
+                <p className="text-base font-bold text-gray-900">GeoCheapestTCG</p>
                 <p className="text-xs text-gray-500">Canada&apos;s TCG marketplace</p>
               </div>
             </Link>
@@ -140,13 +124,13 @@ export default function Home() {
             </nav>
             <div className="flex items-center gap-3">
               <Link
-                href="/signup"
+                href="/login/customer"
                 className="hidden sm:inline-flex items-center rounded-full border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-700 hover:border-blue-500 hover:text-blue-600"
               >
                 Customer sign in
               </Link>
               <Link
-                href="/vendor/signup"
+                href="/login/vendor"
                 className="inline-flex items-center rounded-full bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white shadow hover:bg-blue-700"
               >
                 Vendor sign in
@@ -184,36 +168,39 @@ export default function Home() {
       <section className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl space-y-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">Canada&apos;s TCG marketplace</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">GeoCheapestTCG</p>
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-snug">
               Canada&apos;s TCG Marketplace
             </h1>
             <p className="text-base text-gray-600">
-              Compare sealed products from Shopify vendors and affiliate partners, all in one clean feed.
+              Browse sealed-product inventory from verified vendors and affiliate partners in a single, simple feed.
             </p>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <SearchBar onSearch={(query) => console.log('Search:', query)} />
-              <div className="flex gap-3">
-                <Link
-                  href="/products"
-                  className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
-                >
-                  Browse catalog
-                </Link>
-                <Link
-                  href="/vendor/dashboard"
-                  className="inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700"
-                >
-                  Vendor tools
-                </Link>
-              </div>
+            <SearchBar onSearch={(query) => console.log('Search:', query)} />
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/products"
+                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
+              >
+                Browse catalog
+              </Link>
+              <Link
+                href="/vendor/dashboard"
+                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
+              >
+                Vendor tools
+              </Link>
+              <Link
+                href="#features"
+                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
+              >
+                Verified partner stores
+              </Link>
             </div>
           </div>
-          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
-            {marketplaceHighlights.map((card) => (
-              <div key={card.title} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">{card.title}</p>
-                <p className="mt-2 text-sm text-gray-600">{card.description}</p>
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3" id="features">
+            {featureTitles.map((title) => (
+              <div key={title} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center font-semibold text-gray-800">
+                {title}
               </div>
             ))}
           </div>
@@ -226,7 +213,7 @@ export default function Home() {
           {experienceTiles.map((tile) => (
             <div key={tile.title} className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.3em] text-gray-400">{tile.title}</p>
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">{tile.description}</h3>
+              <h3 className="mt-2 text-lg font-semibold text-gray-900">{tile.title}</h3>
               <Link
                 href={tile.href}
                 className="mt-6 inline-flex items-center text-sm font-semibold text-blue-700 hover:text-blue-900"

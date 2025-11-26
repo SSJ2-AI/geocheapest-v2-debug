@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
-import { Store, DollarSign, ShoppingBag, Users, Trash2 } from 'lucide-react'
+import { Store, DollarSign, ShoppingBag, Users, Trash2, Layers, Loader2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 export default function AdminDashboard() {
@@ -26,6 +26,11 @@ export default function AdminDashboard() {
   })
   const [deleteInputId, setDeleteInputId] = useState('')
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
+  const [deleteTextarea, setDeleteTextarea] = useState('')
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<{ deleted: any[]; not_found: string[] } | null>(null)
+  const [storeInventory, setStoreInventory] = useState<{ shop: string; data: any } | null>(null)
+  const [storeInventoryLoading, setStoreInventoryLoading] = useState<string | null>(null)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const buildMetadata = () => {
     const metadata: Record<string, string> = {}
@@ -98,6 +103,61 @@ export default function AdminDashboard() {
       window.alert(`Failed to delete product: ${detail}`)
     } finally {
       setDeletingProductId(null)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!adminKey) {
+      window.alert('Enter the admin key before deleting products.')
+      return
+    }
+    const ids = deleteTextarea
+      .split(/[\s,;,]+/)
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0)
+    if (ids.length === 0) {
+      window.alert('Paste one or more product IDs (separated by commas or new lines).')
+      return
+    }
+    const confirmed = window.confirm(`Delete ${ids.length} product(s)? This cannot be undone.`)
+    if (!confirmed) {
+      return
+    }
+    try {
+      setBulkDeleting(true)
+      setBulkDeleteResult(null)
+      const response = await axios.post(
+        `${apiBase}/api/admin/products/delete`,
+        { product_ids: ids },
+        { params: { admin_key: adminKey } }
+      )
+      setBulkDeleteResult(response.data)
+      window.alert('Bulk delete finished.')
+      handleLogin()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unable to delete products.'
+      window.alert(detail)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  const fetchStoreInventory = async (shop: string) => {
+    if (!adminKey) {
+      window.alert('Enter the admin key first.')
+      return
+    }
+    try {
+      setStoreInventoryLoading(shop)
+      const response = await axios.get(`${apiBase}/api/admin/stores/${shop}/inventory`, {
+        params: { admin_key: adminKey },
+      })
+      setStoreInventory({ shop, data: response.data })
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unable to load store inventory.'
+      window.alert(detail)
+    } finally {
+      setStoreInventoryLoading(null)
     }
   }
 
@@ -267,30 +327,55 @@ export default function AdminDashboard() {
         </div>
 
         {/* Delete Product */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-red-100">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Delete Product</h2>
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-red-100 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">Delete Products</h2>
             <Trash2 className="w-5 h-5 text-red-500" />
           </div>
-          <p className="text-sm text-gray-500 mb-4">
-            Paste a product ID (see Top Products below) to remove it and any related listings instantly.
+          <p className="text-sm text-gray-500">
+            Paste one or many product IDs (comma or newline separated). We’ll remove each product and its related listings.
           </p>
+          <textarea
+            value={deleteTextarea}
+            onChange={(e) => setDeleteTextarea(e.target.value)}
+            placeholder="d2464285-9c43-4823-ad64-88312dd8289f&#10;4a95582a-8842-4ed4-857c-8fe3fc01a22c"
+            rows={4}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent font-mono text-sm"
+          />
+          <input
+            type="text"
+            value={deleteInputId}
+            onChange={(e) => setDeleteInputId(e.target.value)}
+            placeholder="Optional quick ID"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+          />
           <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              type="text"
-              value={deleteInputId}
-              onChange={(e) => setDeleteInputId(e.target.value)}
-              placeholder="e.g. d2464285-9c43..."
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-            />
             <button
-              onClick={() => handleDeleteProduct()}
-              disabled={ !!deletingProductId }
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
               className="shrink-0 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:bg-gray-400"
             >
-              {deletingProductId ? 'Deleting…' : 'Delete Product'}
+              {bulkDeleting ? 'Deleting…' : 'Delete selected'}
+            </button>
+            <button
+              onClick={() => {
+                setDeleteTextarea(deleteInputId)
+                handleDeleteProduct()
+              }}
+              disabled={!!deletingProductId || !deleteInputId}
+              className="shrink-0 border border-gray-300 px-6 py-2 rounded-lg text-sm font-semibold text-gray-700 hover:border-gray-500 transition-colors disabled:text-gray-400 disabled:border-gray-200"
+            >
+              Quick delete single ID
             </button>
           </div>
+          {bulkDeleteResult && (
+            <div className="text-sm text-gray-600">
+              <p className="font-semibold">Deleted: {bulkDeleteResult.deleted.length}</p>
+              {bulkDeleteResult.not_found.length > 0 && (
+                <p className="text-red-600">Not found: {bulkDeleteResult.not_found.join(', ')}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Platform Stats */}
@@ -352,6 +437,22 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {dashboardData?.category_summary && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-gray-100">
+            <div className="flex items-center gap-3 mb-4">
+              <Layers className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl font-bold text-gray-900">Category breakdown</h2>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(dashboardData.category_summary).map(([category, count]) => (
+                <span key={category} className="inline-flex items-center rounded-full border border-gray-200 px-4 py-1.5 text-sm text-gray-700">
+                  {category}: <span className="ml-1 font-semibold text-gray-900">{count as number}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Stores */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Vendor Stores</h2>
@@ -365,6 +466,7 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4">Sales</th>
                   <th className="text-left py-3 px-4">Commission</th>
                   <th className="text-left py-3 px-4">Actions</th>
+                  <th className="text-left py-3 px-4">Inventory</th>
                 </tr>
               </thead>
               <tbody>
@@ -396,12 +498,108 @@ export default function AdminDashboard() {
                         </button>
                       )}
                     </td>
+                    <td className="py-3 px-4">
+                      <button
+                        onClick={() => fetchStoreInventory(store.shop_domain)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        {storeInventoryLoading === store.shop_domain ? 'Loading…' : 'View'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+
+        {storeInventory && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-blue-100">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Inventory · {storeInventory.data.store?.store_name || storeInventory.shop}
+                </h2>
+                <p className="text-sm text-gray-500">{storeInventory.shop}</p>
+              </div>
+              <button
+                onClick={() => setStoreInventory(null)}
+                className="text-sm text-gray-500 hover:text-gray-800"
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="rounded-xl border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Shopify listings</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {storeInventory.data.shopify_listings.length}
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-100 p-4">
+                <p className="text-sm text-gray-500">Affiliate listings</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {storeInventory.data.affiliate_products.length}
+                </p>
+              </div>
+            </div>
+            {storeInventory.data.shopify_listings.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Shopify products</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-3">Product ID</th>
+                        <th className="text-left py-2 px-3">Price</th>
+                        <th className="text-left py-2 px-3">Qty</th>
+                        <th className="text-left py-2 px-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {storeInventory.data.shopify_listings.map((listing: any) => (
+                        <tr key={listing.id} className="border-b">
+                          <td className="py-2 px-3 font-mono text-xs">{listing.product_id}</td>
+                          <td className="py-2 px-3">${listing.price?.toFixed(2) ?? '0.00'}</td>
+                          <td className="py-2 px-3">{listing.quantity ?? 0}</td>
+                          <td className="py-2 px-3 capitalize">{listing.status || 'active'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {storeInventory.data.affiliate_products.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Affiliate products</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-3">Title</th>
+                        <th className="text-left py-2 px-3">Game</th>
+                        <th className="text-left py-2 px-3">Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {storeInventory.data.affiliate_products.map((item: any) => (
+                        <tr key={item.id} className="border-b">
+                          <td className="py-2 px-3">{item.title}</td>
+                          <td className="py-2 px-3">{item.game || 'Other'}</td>
+                          <td className="py-2 px-3">${item.price?.toFixed(2) ?? '0.00'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {storeInventory.data.shopify_listings.length === 0 && storeInventory.data.affiliate_products.length === 0 && (
+              <p className="text-sm text-gray-500">No listings yet for this store.</p>
+            )}
+          </div>
+        )}
 
         {/* Top Products */}
         <div className="bg-white rounded-lg shadow-md p-6">

@@ -18,6 +18,7 @@ import hmac
 import hashlib
 import base64
 from urllib.parse import urlencode
+import unicodedata
 import stripe
 from google.cloud import firestore, storage
 from google.api_core import exceptions as google_exceptions
@@ -51,6 +52,10 @@ class ManualShopifyConnect(BaseModel):
     access_token: str
     store_name: Optional[str] = None
     owner_email: Optional[str] = None
+
+
+class AdminDeleteProductsRequest(BaseModel):
+    product_ids: List[str]
 from shopify_service import ShopifyService
 from shippo_service import ShippoService
 from stripe_service import StripeService
@@ -2434,6 +2439,7 @@ async def admin_dashboard(
     async for doc in store_docs:
         store = doc.to_dict()
         store["id"] = doc.id
+        store["shop_domain"] = store.get("shop_domain") or doc.id
         stores.append(store)
     
     # Get platform stats
@@ -2457,7 +2463,35 @@ async def admin_dashboard(
         product = doc.to_dict()
         product["id"] = doc.id
         top_products.append(product)
+
+    category_summary: Dict[str, int] = {}
+    all_products: List[Dict[str, Any]] = []
+    all_products_docs = db.collection("products").stream()
+    async for doc in all_products_docs:
+        product = doc.to_dict()
+        product["id"] = doc.id
+        all_products.append(product)
+        category = product.get("category") or "Other"
+        category_summary[category] = category_summary.get(category, 0) + 1
+        if len(all_products) >= 200:
+            break
     
+    affiliate_count = 0
+    affiliate_summary = db.collection(AFFILIATE_PRODUCTS).stream()
+    async for _ in affiliate_summary:
+        affiliate_count += 1
+
+    stores.append({
+        "id": "manual-affiliates",
+        "shop_domain": "manual-affiliates",
+        "store_name": "Manual Affiliate Listings",
+        "status": "active",
+        "total_products": affiliate_count,
+        "total_sales": 0,
+        "commission_rate": 0.0,
+        "subscription_status": "n/a"
+    })
+
     return {
         "stores": stores,
         "stats": {
@@ -2468,6 +2502,8 @@ async def admin_dashboard(
             "total_revenue": total_revenue,
             "total_commission": total_commission
         },
+        "products": all_products,
+        "category_summary": category_summary,
         "top_products": top_products
     }
 
@@ -2485,24 +2521,115 @@ async def admin_delete_product(
     if not snapshot.exists:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    await product_ref.delete()
+    summary = await _delete_products([product_id], db)
+    deleted = summary.get("deleted", [])
+    details = deleted[0] if deleted else {}
+    return {
+        "deleted_product_id": details.get("product_id", product_id),
+        "affiliate_listings_removed": details.get("affiliate_removed", 0),
+        "shopify_listings_removed": details.get("shopify_removed", 0)
+    }
 
-    async def _delete_related(collection_name: str) -> int:
-        deleted = 0
-        docs = db.collection(collection_name).where("product_id", "==", product_id).stream()
+
+@app.post("/api/admin/products/delete")
+async def admin_bulk_delete_products(
+    payload: AdminDeleteProductsRequest,
+    admin_key: str,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    require_admin_key(admin_key)
+    summary = await _delete_products(payload.product_ids, db)
+    return summary
+
+
+@app.get("/api/admin/stores/{shop}/inventory")
+async def admin_store_inventory(
+    shop: str,
+    admin_key: str,
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    require_admin_key(admin_key)
+    if shop == "manual-affiliates":
+        affiliate_products = []
+        docs = db.collection(AFFILIATE_PRODUCTS).stream()
         async for doc in docs:
-            await doc.reference.delete()
-            deleted += 1
-        return deleted
+            record = doc.to_dict()
+            record["id"] = doc.id
+            affiliate_products.append(record)
+        return {
+            "shop": shop,
+            "store": {
+                "shop_domain": "manual-affiliates",
+                "store_name": "Manual Affiliate Listings",
+                "status": "active",
+            },
+            "shopify_listings": [],
+            "affiliate_products": affiliate_products,
+        }
 
-    affiliate_deleted = await _delete_related(AFFILIATE_PRODUCTS)
-    shopify_deleted = await _delete_related(SHOPIFY_LISTINGS)
+    store_doc = await db.collection("stores").document(shop).get()
+    if not store_doc.exists:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    store_data = store_doc.to_dict()
+    store_data["shop_domain"] = shop
+    store_data["id"] = store_doc.id
+
+    shopify_listings = []
+    listing_docs = (
+        db.collection(SHOPIFY_LISTINGS)
+        .where("store_id", "==", shop)
+        .stream()
+    )
+    async for doc in listing_docs:
+        listing = doc.to_dict()
+        listing["id"] = doc.id
+        shopify_listings.append(listing)
 
     return {
-        "deleted_product_id": product_id,
-        "affiliate_listings_removed": affiliate_deleted,
-        "shopify_listings_removed": shopify_deleted
+        "shop": shop,
+        "store": store_data,
+        "shopify_listings": shopify_listings,
+        "affiliate_products": []
     }
+
+
+async def _delete_products(product_ids: List[str], db: firestore.AsyncClient) -> Dict[str, Any]:
+    unique_ids = []
+    seen = set()
+    for raw_id in product_ids:
+        pid = raw_id.strip()
+        if pid and pid not in seen:
+            seen.add(pid)
+            unique_ids.append(pid)
+
+    deleted = []
+    not_found = []
+
+    async def _delete_related(collection_name: str, target_id: str) -> int:
+        removed = 0
+        docs = db.collection(collection_name).where("product_id", "==", target_id).stream()
+        async for doc in docs:
+            await doc.reference.delete()
+            removed += 1
+        return removed
+
+    for pid in unique_ids:
+        product_ref = db.collection(PRODUCTS).document(pid)
+        snapshot = await product_ref.get()
+        if not snapshot.exists:
+            not_found.append(pid)
+            continue
+        await product_ref.delete()
+        affiliate_removed = await _delete_related(AFFILIATE_PRODUCTS, pid)
+        shopify_removed = await _delete_related(SHOPIFY_LISTINGS, pid)
+        deleted.append({
+            "product_id": pid,
+            "affiliate_removed": affiliate_removed,
+            "shopify_removed": shopify_removed
+        })
+
+    return {"deleted": deleted, "not_found": not_found}
 
 
 @app.post("/api/admin/stores/{shop}/approve")

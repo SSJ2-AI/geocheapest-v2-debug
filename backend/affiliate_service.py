@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -233,7 +234,8 @@ class AffiliateService:
     def _detect_game_from_title(self, title: Optional[str], fallback: str = "Other") -> str:
         if not title:
             return fallback
-        lowered = title.lower()
+        normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+        lowered = normalized.lower()
         keyword_map = [
             (["pokemon"], "Pokemon"),
             (["magic: the gathering", "magic the gathering", "mtg"], "Magic: The Gathering"),
