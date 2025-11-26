@@ -3,23 +3,30 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
 
-export function SearchBar({ onSearch }: { onSearch: (query: string) => void }) {
+type SearchBarProps = {
+  onSearch: (query: string) => void
+  placeholder?: string
+  className?: string
+  inputClassName?: string
+}
+
+export function SearchBar({ onSearch, placeholder, className, inputClassName }: SearchBarProps) {
   const [query, setQuery] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSearch(query)
+    onSearch(query.trim())
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+    <form onSubmit={handleSubmit} className={className ?? 'w-full'}>
       <div className="relative">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search for Pokemon, Yu-Gi-Oh, Magic cards..."
-          className="w-full px-6 py-4 rounded-full text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg"
+          placeholder={placeholder || 'Search for Pokemon, Yu-Gi-Oh, Magic cards...'}
+          className={`w-full px-6 py-4 rounded-full text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-lg ${inputClassName ?? ''}`}
         />
         <button
           type="submit"

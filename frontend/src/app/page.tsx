@@ -1,34 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ProductCard } from '@/components/ProductCard'
 import { CartWidget } from '@/components/CartWidget'
 import { SearchBar } from '@/components/SearchBar'
-import { useCartStore } from '@/store/cartStore'
 import axios from 'axios'
-import { useMemo } from 'react'
 import { getApiUrl } from '@/lib/api'
 
-const featureTitles = ['Verified Partner Stores', 'Best Price Engine', 'Secure Checkout']
-
-const experienceTiles = [
-  {
-    title: 'Customers',
-    action: 'Customer portal',
-    href: '/signup'
-  },
-  {
-    title: 'Vendors',
-    action: 'Vendor onboarding',
-    href: '/vendor/signup'
-  },
-  {
-    title: 'Admins',
-    action: 'Admin access',
-    href: '/admin/dashboard'
-  }
-]
 const sortOptions = [
   { value: 'featured', label: 'Featured' },
   { value: 'price_low', label: 'Price: Low to High' },
@@ -55,22 +34,21 @@ interface Product {
 
 export default function Home() {
   const apiBase = useMemo(() => getApiUrl(), [])
-  const [products, setProducts] = useState<Product[]>([])
+  const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState<string | null>(null)
   const [sortOption, setSortOption] = useState<string>('featured')
+  const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => {
     fetchProducts()
-  }, [category, apiBase])
+  }, [apiBase])
 
   const fetchProducts = async () => {
     try {
       setLoading(true)
-      const params = category ? { category } : {}
-      const response = await axios.get(`${apiBase}/api/products`, { params })
-      console.log('Products from API:', response.data.products)
-      setProducts(response.data.products || [])
+      const response = await axios.get(`${apiBase}/api/products`)
+      setAllProducts(response.data?.products || [])
     } catch (error) {
       console.error('Failed to fetch products:', error)
     } finally {
@@ -78,8 +56,23 @@ export default function Home() {
     }
   }
 
+  const categoryFiltered = useMemo(() => {
+    if (!category) return allProducts
+    return allProducts.filter((product) => product.category === category)
+  }, [allProducts, category])
+
+  const filteredProducts = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return categoryFiltered
+    return categoryFiltered.filter((product) => {
+      const nameMatch = product.name.toLowerCase().includes(term)
+      const categoryMatch = (product.category || '').toLowerCase().includes(term)
+      return nameMatch || categoryMatch
+    })
+  }, [categoryFiltered, searchTerm])
+
   const sortedProducts = useMemo(() => {
-    const items = [...products]
+    const items = [...filteredProducts]
     switch (sortOption) {
       case 'price_low':
         items.sort((a, b) => (a.best_price ?? 0) - (b.best_price ?? 0))
@@ -97,7 +90,7 @@ export default function Home() {
         break
     }
     return items
-  }, [products, sortOption])
+  }, [filteredProducts, sortOption])
 
   const categories = ['Pokemon', 'One Piece', 'Yu-Gi-Oh', 'Magic: The Gathering', 'Dragon Ball']
 
@@ -117,10 +110,7 @@ export default function Home() {
               </div>
             </Link>
             <nav className="hidden md:flex items-center gap-6 text-sm text-gray-600">
-              <Link href="#marketplace" className="hover:text-gray-900">Marketplace</Link>
-              <Link href="/products" className="hover:text-gray-900">All products</Link>
-              <Link href="/help" className="hover:text-gray-900">Help</Link>
-              <Link href="/contact" className="hover:text-gray-900">Support</Link>
+              <Link href="#products" className="hover:text-gray-900">All products</Link>
             </nav>
             <div className="flex items-center gap-3">
               <Link
@@ -139,12 +129,38 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <div className="border-t border-gray-100 bg-gray-50/80">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-3 overflow-x-auto py-3 text-sm">
+      </header>
+
+      {/* Slim hero */}
+      <section className="bg-white border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="max-w-3xl space-y-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">GeoCheapestTCG</p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-snug">
+              Canada&apos;s TCG Marketplace
+            </h1>
+            <p className="text-base text-gray-600">
+              Browse sealed-product inventory from verified vendors and affiliate partners in a single, simple feed.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Products Grid */}
+      <section id="products" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+        <div className="space-y-4">
+          <SearchBar
+            onSearch={(query) => setSearchTerm(query)}
+            placeholder="Search for Pokemon, Yu-Gi-Oh, Magic cards..."
+            className="w-full"
+          />
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setCategory(null)}
-              className={`rounded-full px-4 py-1.5 transition ${
-                category === null ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 border border-gray-200'
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                category === null
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400'
               }`}
             >
               All products
@@ -153,8 +169,10 @@ export default function Home() {
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}
-                className={`rounded-full px-4 py-1.5 transition ${
-                  category === cat ? 'bg-blue-100 text-blue-700 border border-blue-300' : 'bg-white text-gray-700 border border-gray-200'
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  category === cat
+                    ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                    : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400'
                 }`}
               >
                 {cat}
@@ -162,75 +180,15 @@ export default function Home() {
             ))}
           </div>
         </div>
-      </header>
-
-      {/* Slim hero */}
-      <section className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-2xl space-y-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-blue-500">GeoCheapestTCG</p>
-            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-snug">
-              Canada&apos;s TCG Marketplace
-            </h1>
-            <p className="text-base text-gray-600">
-              Browse sealed-product inventory from verified vendors and affiliate partners in a single, simple feed.
-            </p>
-            <SearchBar onSearch={(query) => console.log('Search:', query)} />
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/products"
-                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
-              >
-                Browse catalog
-              </Link>
-              <Link
-                href="/vendor/dashboard"
-                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
-              >
-                Vendor tools
-              </Link>
-              <Link
-                href="#features"
-                className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 hover:border-blue-400"
-              >
-                Verified partner stores
-              </Link>
-            </div>
-          </div>
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3" id="features">
-            {featureTitles.map((title) => (
-              <div key={title} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center font-semibold text-gray-800">
-                {title}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Role-specific entry points */}
-      <section id="marketplace" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          {experienceTiles.map((tile) => (
-            <div key={tile.title} className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.3em] text-gray-400">{tile.title}</p>
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">{tile.title}</h3>
-              <Link
-                href={tile.href}
-                className="mt-6 inline-flex items-center text-sm font-semibold text-blue-700 hover:text-blue-900"
-              >
-                {tile.action} →
-              </Link>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Products Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.3em] text-blue-500">Marketplace</p>
-            <h2 className="text-2xl font-bold text-gray-900">Browse sealed product deals</h2>
+            <h2 className="text-2xl font-bold text-gray-900">
+              Browse sealed product deals
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Showing {sortedProducts.length} {sortedProducts.length === 1 ? 'item' : 'items'}
+            </p>
           </div>
           <select
             value={sortOption}
@@ -256,7 +214,7 @@ export default function Home() {
               </div>
             ))}
           </div>
-        ) : products.length > 0 ? (
+        ) : sortedProducts.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {sortedProducts.map((product) => (
               <ProductCard key={product.id} product={product} />
