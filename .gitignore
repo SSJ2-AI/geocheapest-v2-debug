@@ -146,6 +146,39 @@ url.txt
 test_add_product.py
 add_test_product_api.py
 
+# Secrets and credentials (DO NOT COMMIT)
+gcp_creds*.json
+*creds*.json
+*credentials*.json
+cloud_run_logs*.json
+logs*.json
+*.log
+deploy.sh
+deploy*.ps1
+deploy*.bat
+gcp_creds_real_newlines.json
+
+# Test files and temporary scripts
+backend/test_*.py
+backend/debug_*.py
+backend/verify_*.py
+backend/inspect_*.py
+backend/*_log*.txt
+backend/products_list*.txt
+backend/links_verification.txt
+check_*.py
+diagnose_*.py
+insert_test_product.py
+auth_list.txt
+*.txt
+!requirements.txt
+!README.txt
+response.json
+products.json
+revisions.txt
+minimal_url.txt
+test_link.html
+
 # Temporary Logs
 latest_logs.json
 service_desc.json
