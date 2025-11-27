@@ -40,16 +40,26 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!authLoading) {
       if (!user || user.role !== 'admin') {
-        router.push('/login')
+        // Don't redirect immediately - show message instead
+        if (user && user.role !== 'admin') {
+          setErrorMessage('Your account does not have admin privileges. Please log in with an admin account.')
+        }
+        // router.push('/login')
       } else {
         fetchDashboardData()
       }
     }
   }, [user, authLoading, router])
 
-  const getHeaders = () => ({
-    headers: { Authorization: `Bearer ${token}` }
-  })
+  const getHeaders = () => {
+    if (!token) {
+      console.error('No token available - user not logged in')
+      return {}
+    }
+    return {
+      headers: { Authorization: `Bearer ${token}` }
+    }
+  }
 
   const fetchDashboardData = async () => {
     try {
@@ -81,12 +91,25 @@ export default function AdminDashboard() {
       return
     }
 
+    if (!token) {
+      setErrorMessage('You must be logged in to add products. Please log in first.')
+      router.push('/login')
+      return
+    }
+
+    if (!user || user.role !== 'admin') {
+      setErrorMessage('Admin access required. Your account does not have admin privileges.')
+      return
+    }
+
     try {
       setAddingProduct(true)
+      const headers = getHeaders()
+      console.log('Adding product with headers:', headers)
       await axios.post(`${apiBase}/api/admin/products/add_from_url`, {
         url: productUrl.trim(),
         metadata: buildMetadata()
-      }, getHeaders())
+      }, headers)
       setSuccessMessage('Product added successfully!')
       setProductUrl('')
       setProductOverrides({
