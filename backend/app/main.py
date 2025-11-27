@@ -225,30 +225,10 @@ async def on_startup():
         logger.error(f"GCP Storage init failed: {e}")
         _storage_client = None
         # _firestore_client = None # Removed
-    if affiliate_service.amazon_sync_enabled:
-        _amazon_task = asyncio.create_task(
-            amazon_sync_loop(affiliate_service)
-        )
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    global _firestore_client, _amazon_task
-    if _firestore_client is not None:
-        try:
-            await _firestore_client.close()
-        except Exception as exc:
-            logger.warning(f"Error closing Firestore client: {exc}")
-        finally:
-            _firestore_client = None
-    if _amazon_task:
-        _amazon_task.cancel()
-        try:
-            await _amazon_task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            _amazon_task = None
+    # if affiliate_service.amazon_sync_enabled:
+    #     _amazon_task = asyncio.create_task(
+    #         amazon_sync_loop(affiliate_service)
+    #     )
 
 
 def _ensure_gcp():
@@ -334,9 +314,10 @@ async def health_check(_: firestore.AsyncClient = Depends(get_db)):
 # ==================== AUTHENTICATION ====================
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: firestore.AsyncClient = Depends(get_db)
+    token: str = Depends(oauth2_scheme)
 ) -> User:
+    from database import db
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -363,14 +344,25 @@ async def get_current_user(
     
     if user_data is None:
         raise credentials_exception
+    
+    # Ensure required fields have defaults
+    if "is_superuser" not in user_data:
+        user_data["is_superuser"] = False
+    if "is_vendor" not in user_data:
+        user_data["is_vendor"] = False
+    if "is_active" not in user_data:
+        user_data["is_active"] = True
+    if "hashed_password" not in user_data:
+        user_data["hashed_password"] = ""  # Should not happen, but prevent errors
         
     return User(**user_data)
 
 
 async def get_optional_user(
-    token: Optional[str] = Depends(optional_oauth2_scheme),
-    db: firestore.AsyncClient = Depends(get_db)
+    token: Optional[str] = Depends(optional_oauth2_scheme)
 ) -> Optional[User]:
+    from database import db
+    
     if not token:
         return None
     try:
@@ -486,12 +478,23 @@ async def login_for_access_token(
         )
     
     access_token = create_access_token(subject=user_data["email"])
-    return {"access_token": access_token, "token_type": "bearer"}
+    
+    role = "user"
+    if user_data.get("is_superuser"):
+        role = "admin"
+    elif user_data.get("is_vendor"):
+        role = "vendor"
+        
+    return {"access_token": access_token, "token_type": "bearer", "role": role}
 
 
-@app.get("/api/users/me", response_model=User)
+@app.get("/api/users/me")
 async def read_users_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    """Get current user info (excludes password)"""
+    user_dict = current_user.dict()
+    # Remove sensitive fields
+    user_dict.pop("hashed_password", None)
+    return user_dict
 
 
 @app.get("/api/users/me/export")
@@ -1148,26 +1151,6 @@ async def seed_default_affiliates(
             "title": sample["title"]
         })
     return {"seeded": len(created), "products": created}
-
-@app.get("/api/admin/dashboard")
-async def get_admin_dashboard(
-    admin_key: str,
-    db: firestore.AsyncClient = Depends(get_db)
-):
-    if admin_key != os.getenv("ADMIN_API_KEY"):
-        raise HTTPException(status_code=403, detail="Invalid admin key")
-    
-    # Return mock data if DB is down or just to ensure it works
-    return {
-        "stats": {
-            "total_stores": 5,
-            "total_revenue": 1250.00,
-            "total_orders": 42,
-            "total_commission": 62.50
-        },
-        "stores": [],
-        "top_products": []
-    }
 
 
     asin_match = re.search(r'/dp/([A-Z0-9]{10})', affiliate_url)
@@ -2425,8 +2408,8 @@ async def vendor_return_label(
 
 # ==================== ADMIN PORTAL ====================
 
-@app.get("/api/admin/dashboard")
-async def admin_dashboard(
+@app.get("/api/admin/dashboard-OLD")
+async def admin_dashboard_OLD(
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
 ):
@@ -2508,8 +2491,8 @@ async def admin_dashboard(
     }
 
 
-@app.delete("/api/admin/products/{product_id}")
-async def admin_delete_product(
+@app.delete("/api/admin/products/{product_id}-OLD")
+async def admin_delete_product_OLD(
     product_id: str,
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
@@ -2531,8 +2514,8 @@ async def admin_delete_product(
     }
 
 
-@app.post("/api/admin/products/delete")
-async def admin_bulk_delete_products(
+@app.post("/api/admin/products/delete-OLD")
+async def admin_bulk_delete_products_OLD(
     payload: AdminDeleteProductsRequest,
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
@@ -2542,8 +2525,8 @@ async def admin_bulk_delete_products(
     return summary
 
 
-@app.get("/api/admin/stores/{shop}/inventory")
-async def admin_store_inventory(
+@app.get("/api/admin/stores/{shop}/inventory-OLD")
+async def admin_store_inventory_OLD(
     shop: str,
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
@@ -2632,8 +2615,8 @@ async def _delete_products(product_ids: List[str], db: firestore.AsyncClient) ->
     return {"deleted": deleted, "not_found": not_found}
 
 
-@app.post("/api/admin/stores/{shop}/approve")
-async def approve_store(
+@app.post("/api/admin/stores/{shop}/approve-OLD")
+async def approve_store_OLD(
     shop: str,
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
@@ -2649,8 +2632,8 @@ async def approve_store(
     return {"status": "approved"}
 
 
-@app.put("/api/admin/commission-rates")
-async def update_commission_rates(
+@app.put("/api/admin/commission-rates-OLD")
+async def update_commission_rates_OLD(
     rates: Dict[str, float],
     admin_key: str,
     db: firestore.AsyncClient = Depends(get_db)
@@ -2666,8 +2649,8 @@ async def update_commission_rates(
     return {"status": "updated"}
 
 
-@app.put("/api/admin/stores/{shop}/commission")
-async def set_vendor_commission(
+@app.put("/api/admin/stores/{shop}/commission-OLD")
+async def set_vendor_commission_OLD(
     shop: str,
     rate: float,
     admin_key: str,
@@ -2684,8 +2667,8 @@ async def set_vendor_commission(
     return {"status": "updated"}
 
 
-@app.post("/api/admin/amazon/sync")
-async def trigger_amazon_sync(admin_key: str):
+@app.post("/api/admin/amazon/sync-OLD")
+async def trigger_amazon_sync_OLD(admin_key: str):
     """Manually trigger an Amazon.ca affiliate sync"""
     require_admin_key(admin_key)
     if not affiliate_service.amazon_sync_enabled:
@@ -2701,9 +2684,9 @@ async def create_return_request(
     order_id: str,
     items: List[Dict[str, Any]],
     reason: str,
-    customer_email: str,
-    db: firestore.AsyncClient = Depends(get_db)
+    customer_email: str
 ):
+    from database import db
     """Create return request"""
     order_doc = await db.collection("orders").document(order_id).get()
     if not order_doc.exists:
@@ -2727,11 +2710,12 @@ async def create_return_request(
 @app.post("/api/returns/{return_id}/approve")
 async def approve_return(
     return_id: str,
-    admin_key: str,
-    db: firestore.AsyncClient = Depends(get_db)
+    current_user: User = Depends(get_current_user)
 ):
     """Approve return and process refund"""
-    require_admin_key(admin_key)
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from database import db
     
     return_doc = await db.collection("returnRequests").document(return_id).get()
     if not return_doc.exists:
@@ -2756,6 +2740,264 @@ async def approve_return(
     })
     
     return {"status": "approved", "refund_processed": True}
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.get("/api/admin/dashboard")
+async def admin_dashboard(
+    current_user: User = Depends(get_current_user)
+):
+    """Get admin dashboard statistics"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from database import db
+    
+    # Get stores
+    stores = []
+    stores_ref = db.collection("stores").stream()
+    async for doc in stores_ref:
+        store_data = doc.to_dict()
+        store_data["id"] = doc.id
+        stores.append(store_data)
+    
+    # Get products for category summary
+    products = []
+    products_ref = db.collection("products").stream()
+    async for doc in products_ref:
+        product_data = doc.to_dict()
+        product_data["id"] = doc.id
+        products.append(product_data)
+    
+    category_summary = {}
+    for p in products:
+        cat = p.get("category", "Other")
+        category_summary[cat] = category_summary.get(cat, 0) + 1
+    
+    # Get top products (by total_sales)
+    top_products = sorted(products, key=lambda x: x.get("total_sales", 0), reverse=True)[:10]
+    
+    return {
+        "stats": {
+            "total_stores": len(stores),
+            "total_revenue": sum(s.get("total_sales", 0) for s in stores),
+            "total_orders": 0,  # Would need orders collection
+            "total_commission": sum(s.get("total_sales", 0) * s.get("commission_rate", 0.1) for s in stores)
+        },
+        "stores": stores,
+        "category_summary": category_summary,
+        "top_products": top_products
+    }
+
+
+@app.post("/api/admin/amazon/sync")
+async def admin_amazon_sync(
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """Trigger Amazon product sync"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    if not affiliate_service.amazon_sync_enabled:
+        raise HTTPException(status_code=400, detail="Amazon sync not configured (missing RAPIDAPI_KEY)")
+    
+    # Run sync in background to avoid timeout
+    async def run_sync():
+        try:
+            logger.info("Starting Amazon sync...")
+            count = await affiliate_service.sync_amazon_tcg_products()
+            logger.info(f"Amazon sync completed successfully. Added {count} products.")
+        except Exception as e:
+            logger.error(f"Amazon sync failed: {e}", exc_info=True)
+    
+    # Start sync in background task
+    if background_tasks:
+        background_tasks.add_task(run_sync)
+        return {"status": "success", "message": "Amazon sync started in background"}
+    else:
+        # Fallback: run in background using asyncio
+        asyncio.create_task(run_sync())
+        return {"status": "success", "message": "Amazon sync started in background"}
+
+
+@app.post("/api/admin/products/add_from_url")
+async def admin_add_product_from_url(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Add product from Amazon or eBay URL"""
+    if not current_user.is_superuser:
+        logger.warning(f"Non-admin user {current_user.email} attempted to add product")
+        raise HTTPException(status_code=403, detail="Admin access required. Your account must have admin privileges.")
+    
+    try:
+        body = await request.json()
+        url = body.get("url")
+        metadata = body.get("metadata")
+        
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        logger.info(f"Admin {current_user.email} (ID: {current_user.id}) adding product from URL: {url[:50]}...")
+        result = await affiliate_service.add_product_from_url(url, metadata)
+        logger.info(f"Product added successfully: {result.get('id', 'unknown')}")
+        return {"status": "success", "product": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add product from URL: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/admin/products/{product_id}")
+async def admin_delete_product(
+    product_id: str,
+    current_user: User = Depends(get_current_user),
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Delete a product and its listings"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Delete product
+    await db.collection("products").document(product_id).delete()
+    
+    # Delete associated listings
+    shopify_listings = db.collection("shopifyListings").where("product_id", "==", product_id).stream()
+    async for doc in shopify_listings:
+        await doc.reference.delete()
+    
+    affiliate_listings = db.collection("affiliateProducts").where("product_id", "==", product_id).stream()
+    async for doc in affiliate_listings:
+        await doc.reference.delete()
+    
+    return {"status": "success", "deleted": product_id}
+
+
+@app.post("/api/admin/products/delete")
+async def admin_bulk_delete_products(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Bulk delete products"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    body = await request.json()
+    product_ids = body.get("product_ids", [])
+    
+    deleted = []
+    not_found = []
+    
+    for product_id in product_ids:
+        doc = await db.collection("products").document(product_id).get()
+        if doc.exists:
+            await db.collection("products").document(product_id).delete()
+            
+            # Delete associated listings
+            shopify_listings = db.collection("shopifyListings").where("product_id", "==", product_id).stream()
+            async for listing_doc in shopify_listings:
+                await listing_doc.reference.delete()
+            
+            affiliate_listings = db.collection("affiliateProducts").where("product_id", "==", product_id).stream()
+            async for listing_doc in affiliate_listings:
+                await listing_doc.reference.delete()
+            
+            deleted.append(product_id)
+        else:
+            not_found.append(product_id)
+    
+    return {"deleted": deleted, "not_found": not_found}
+
+
+@app.get("/api/admin/stores/{shop}/inventory")
+async def admin_store_inventory(
+    shop: str,
+    current_user: User = Depends(get_current_user),
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Get inventory for a specific store"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get store
+    store_doc = await db.collection("stores").document(shop).get()
+    if not store_doc.exists:
+        raise HTTPException(status_code=404, detail="Store not found")
+    
+    # Get Shopify listings
+    shopify_listings = []
+    listings_ref = db.collection("shopifyListings").where("store_id", "==", shop).stream()
+    async for doc in listings_ref:
+        listing_data = doc.to_dict()
+        listing_data["id"] = doc.id
+        shopify_listings.append(listing_data)
+    
+    # Get affiliate products (if any)
+    affiliate_products = []
+    
+    return {
+        "store": store_doc.to_dict(),
+        "shopify_listings": shopify_listings,
+        "affiliate_products": affiliate_products
+    }
+
+
+@app.post("/api/admin/users/{user_email}/make-admin")
+async def make_user_admin(
+    user_email: str,
+    current_user: User = Depends(get_current_user),
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Make a user an admin (requires existing admin)"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users_ref = db.collection("users")
+    query = users_ref.where("email", "==", user_email).limit(1)
+    docs = query.stream()
+    
+    user_doc = None
+    async for doc in docs:
+        user_doc = doc
+        break
+    
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await user_doc.reference.update({
+        "is_superuser": True,
+        "updated_at": datetime.utcnow()
+    })
+    
+    return {"status": "success", "message": f"User {user_email} is now an admin"}
+
+
+@app.post("/api/admin/stores/{shop}/approve")
+async def admin_approve_store(
+    shop: str,
+    current_user: User = Depends(get_current_user),
+    db: firestore.AsyncClient = Depends(get_db)
+):
+    """Approve a pending store"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    store_ref = db.collection("stores").document(shop)
+    store_doc = await store_ref.get()
+    
+    if not store_doc.exists:
+        raise HTTPException(status_code=404, detail="Store not found")
+    
+    await store_ref.update({
+        "status": "active",
+        "approved_at": datetime.utcnow()
+    })
+    
+    return {"status": "success", "shop": shop}
 
 
 if __name__ == "__main__":

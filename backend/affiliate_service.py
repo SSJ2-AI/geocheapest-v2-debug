@@ -18,17 +18,68 @@ from database import AFFILIATE_PRODUCTS, PRODUCTS, db
 logger = logging.getLogger(__name__)
 
 AMAZON_TCG_QUERIES: List[Tuple[str, str]] = [
-    ("Pokemon TCG sealed booster box", "Pokemon"),
-    ("Magic The Gathering sealed booster", "Magic: The Gathering"),
-    ("Yu-Gi-Oh sealed booster box", "Yu-Gi-Oh"),
-    ("One Piece TCG sealed", "One Piece"),
-    ("Disney Lorcana sealed booster", "Lorcana"),
-    ("Flesh and Blood sealed booster", "Flesh and Blood"),
-    ("Digimon sealed booster box", "Digimon"),
-    ("Weiss Schwarz sealed booster", "Weiss Schwarz"),
-    ("Dragon Ball Super sealed booster", "Dragon Ball Super"),
-    ("Final Fantasy TCG sealed booster", "Final Fantasy TCG"),
-    ("Cardfight Vanguard sealed booster", "Cardfight Vanguard"),
+    # Pokemon
+    ("Pokemon TCG Booster Box", "Pokemon"),
+    ("Pokemon TCG Elite Trainer Box", "Pokemon"),
+    ("Pokemon TCG Ultra Premium Collection", "Pokemon"),
+    ("Pokemon TCG Booster Bundle", "Pokemon"),
+    ("Pokemon TCG Tin", "Pokemon"),
+    
+    # Magic: The Gathering
+    ("Magic The Gathering Play Booster Box", "Magic: The Gathering"),
+    ("Magic The Gathering Collector Booster Box", "Magic: The Gathering"),
+    ("Magic The Gathering Commander Deck", "Magic: The Gathering"),
+    ("Magic The Gathering Bundle", "Magic: The Gathering"),
+    
+    # Yu-Gi-Oh
+    ("Yu-Gi-Oh Booster Box", "Yu-Gi-Oh"),
+    ("Yu-Gi-Oh Structure Deck", "Yu-Gi-Oh"),
+    ("Yu-Gi-Oh Tin", "Yu-Gi-Oh"),
+    ("Yu-Gi-Oh 25th Anniversary", "Yu-Gi-Oh"),
+    
+    # One Piece
+    ("One Piece TCG Booster Box", "One Piece"),
+    ("One Piece TCG Starter Deck", "One Piece"),
+    ("One Piece TCG Double Pack", "One Piece"),
+    
+    # Lorcana
+    ("Disney Lorcana Booster Box", "Lorcana"),
+    ("Disney Lorcana Trove", "Lorcana"),
+    ("Disney Lorcana Starter Deck", "Lorcana"),
+    ("Disney Lorcana Gift Set", "Lorcana"),
+    
+    # Star Wars Unlimited
+    ("Star Wars Unlimited Booster Box", "Star Wars Unlimited"),
+    ("Star Wars Unlimited Two Player Starter", "Star Wars Unlimited"),
+    
+    # Union Arena
+    ("Union Arena Booster Box", "Union Arena"),
+    ("Union Arena Starter Deck", "Union Arena"),
+    
+    # Dragon Ball
+    ("Dragon Ball Super Card Game Booster Box", "Dragon Ball Super"),
+    ("Dragon Ball Fusion World Booster Box", "Dragon Ball Super"),
+    
+    # Digimon
+    ("Digimon TCG Booster Box", "Digimon"),
+    ("Digimon TCG Starter Deck", "Digimon"),
+    
+    # Flesh and Blood
+    ("Flesh and Blood TCG Booster Box", "Flesh and Blood"),
+    ("Flesh and Blood TCG Blitz Deck", "Flesh and Blood"),
+    
+    # Weiss Schwarz
+    ("Weiss Schwarz Booster Box", "Weiss Schwarz"),
+    ("Weiss Schwarz Trial Deck", "Weiss Schwarz"),
+    
+    # Others
+    ("Final Fantasy TCG Booster Box", "Final Fantasy TCG"),
+    ("Cardfight Vanguard Booster Box", "Cardfight Vanguard"),
+    ("Shadowverse Evolve Booster Box", "Shadowverse Evolve"),
+    ("Battle Spirits Saga Booster Box", "Battle Spirits Saga"),
+    ("Grand Archive TCG Booster Box", "Grand Archive"),
+    ("Sorcery Contested Realm Booster Box", "Sorcery: Contested Realm"),
+    ("MetaZoo Booster Box", "MetaZoo"),
 ]
 
 
@@ -43,7 +94,7 @@ class AffiliateService:
         )
         self.amazon_api_key = os.getenv("RAPIDAPI_KEY")
         self.amazon_host = os.getenv(
-            "RAPIDAPI_AMAZON_HOST", "amazon-data-scraper126.p.rapidapi.com"
+            "RAPIDAPI_AMAZON_HOST", "real-time-amazon-data.p.rapidapi.com"
         )
         self.amazon_min_rating = float(os.getenv("AMAZON_MIN_RATING", "4.0"))
         self.amazon_min_reviews = int(os.getenv("AMAZON_MIN_REVIEWS", "50"))
@@ -90,6 +141,7 @@ class AffiliateService:
 
     async def get_amazon_product_details(self, asin: str) -> Optional[Dict[str, Any]]:
         if not self.amazon_api_key:
+            logger.warning("Amazon API key not configured")
             return None
         url = f"https://{self.amazon_host}/product/{asin}"
         headers = {
@@ -101,30 +153,74 @@ class AffiliateService:
             async with httpx.AsyncClient(timeout=20) as client:
                 response = await client.get(url, headers=headers, params=params)
                 if response.status_code == 200:
-                    return response.json()
+                    data = response.json()
+                    logger.debug(f"Retrieved Amazon product details for ASIN {asin}")
+                    return data
+                else:
+                    logger.warning(f"Amazon API returned status {response.status_code} for ASIN {asin}: {response.text[:200]}")
         except Exception as exc:
-            logger.error("Amazon details error: %s", exc)
+            logger.error(f"Amazon details error for ASIN {asin}: {exc}", exc_info=True)
         return None
 
     def build_amazon_affiliate_url(self, asin: str) -> str:
         return f"https://www.amazon.ca/dp/{asin}?tag={self.amazon_tag}"
 
-    async def sync_amazon_tcg_products(self) -> int:
-        """Pull sealed TCG inventory for every supported game."""
+    async def sync_amazon_tcg_products(self, max_products: int = 50) -> int:
+        """Pull sealed TCG inventory for every supported game.
+        
+        Args:
+            max_products: Maximum number of products to add (stops early to avoid long waits)
+        """
         if not self.amazon_sync_enabled:
+            logger.warning("Amazon sync is disabled (missing RAPIDAPI_KEY)")
             return 0
 
         total = 0
-        for query, game in AMAZON_TCG_QUERIES:
-            results = await self.search_amazon_product(query)
-            for result in results:
-                normalized = self._normalize_amazon_result(result, game)
-                if not normalized:
-                    continue
-                product_id = self._upsert_product(normalized)
-                self._upsert_amazon_listing(product_id, normalized)
-                total += 1
-        logger.info("Amazon sync completed with %s listings", total)
+        skipped = 0
+        max_queries = min(10, len(AMAZON_TCG_QUERIES))  # Process max 10 queries at a time
+        logger.info(f"Starting Amazon sync (processing {max_queries} queries, max {max_products} products)...")
+        
+        for idx, (query, game) in enumerate(AMAZON_TCG_QUERIES[:max_queries], 1):
+            if total >= max_products:
+                logger.info(f"Reached max products limit ({max_products}), stopping early")
+                break
+                
+            try:
+                logger.info(f"Processing query {idx}/{max_queries}: {query} ({game})")
+                results = await self.search_amazon_product(query)
+                logger.info(f"Found {len(results)} results for {query}")
+                
+                # Limit results per query to avoid processing too many
+                results_to_process = results[:10]  # Max 10 results per query
+                
+                for result in results_to_process:
+                    if total >= max_products:
+                        break
+                        
+                    normalized = self._normalize_amazon_result(result, game)
+                    if not normalized:
+                        skipped += 1
+                        continue
+                    
+                    try:
+                        product_id = await self._upsert_product(normalized)
+                        await self._upsert_amazon_listing(product_id, normalized)
+                        total += 1
+                        if total % 5 == 0:
+                            logger.info(f"Progress: {total} products added, {skipped} skipped")
+                    except Exception as e:
+                        logger.error(f"Error upserting product {normalized.get('asin', 'unknown')}: {e}")
+                        skipped += 1
+                
+                # Rate limiting: delay between queries
+                if idx < max_queries and total < max_products:
+                    await asyncio.sleep(0.5)  # Reduced delay
+                    
+            except Exception as e:
+                logger.error(f"Error processing query '{query}': {e}", exc_info=True)
+                continue
+        
+        logger.info(f"Amazon sync completed: {total} products added, {skipped} skipped")
         return total
 
     def _normalize_amazon_result(
@@ -153,9 +249,13 @@ class AffiliateService:
         in_stock = (
             result.get("in_stock", True)
             if isinstance(result.get("in_stock"), bool)
-            else "out of stock" not in str(availability).lower()
+            else "out of stock" not in str(availability).lower() 
+            and "currently unavailable" not in str(availability).lower()
         )
+        
+        # STRICT ENFORCEMENT: Do not import if out of stock
         if not in_stock:
+            logger.info(f"Skipping out of stock item: {result.get('asin')} ({availability})")
             return None
 
         title = result.get("title") or result.get("name")
@@ -172,11 +272,9 @@ class AffiliateService:
         release_status = self._classify_release_status(title, availability)
         seller = result.get("merchant") or result.get("seller_name") or "Amazon Marketplace"
         
-        # Vetted Vendor Check
-        if not any(v.lower() in seller.lower() for v in self.vetted_vendors):
-            # Optional: Log skipped vendor for review
-            # logger.debug(f"Skipping non-vetted vendor: {seller}")
-            return None
+        # Vetted Vendor Check REMOVED to allow all high-rated sellers
+        # if not any(v.lower() in seller.lower() for v in self.vetted_vendors):
+        #     return None
 
         return {
             "asin": asin,
@@ -332,26 +430,71 @@ class AffiliateService:
     # Price refresh
     # ------------------------------------------------------------------
     async def update_affiliate_prices(self):
-        """Lightweight price refresh for Amazon listings."""
+        """
+        Deep Refresh: Iterate ALL Amazon listings in DB and update price/stock.
+        This ensures out-of-stock items (hidden from search) are correctly marked.
+        """
+        if not self.amazon_sync_enabled:
+            return
+
+        logger.info("Starting Deep Refresh for Amazon listings...")
+        
+        # Stream all Amazon affiliate products
         amazon_docs = db.collection(AFFILIATE_PRODUCTS).where(
             "affiliate_name", "==", "Amazon.ca"
         ).stream()
-        for doc in amazon_docs:
+        
+        count = 0
+        updated = 0
+        
+        async for doc in amazon_docs:
             listing = doc.to_dict()
             asin = listing.get("asin")
             if not asin:
                 continue
-            details = await self.get_amazon_product_details(asin)
-            if details:
-                price = self._parse_price(details.get("price") or "")
-                stock = details.get("in_stock", True)
-                doc.reference.update(
-                    {
-                        "price": price or listing.get("price", 0),
-                        "in_stock": bool(stock),
+                
+            count += 1
+            # Rate limit protection (simple sleep)
+            await asyncio.sleep(1.0) 
+            
+            try:
+                details = await self.get_amazon_product_details(asin)
+                if details:
+                    # Parse new values
+                    price_raw = (
+                        details.get("price") 
+                        or details.get("price_current") 
+                        or details.get("price_string") 
+                        or ""
+                    )
+                    price = self._parse_price(price_raw)
+                    
+                    # Check stock status
+                    availability = details.get("availability", True)
+                    in_stock = (
+                        details.get("in_stock", True)
+                        if isinstance(details.get("in_stock"), bool)
+                        else "out of stock" not in str(availability).lower()
+                        and "currently unavailable" not in str(availability).lower()
+                    )
+                    
+                    # Update Firestore
+                    await doc.reference.update({
+                        "price": price,
+                        "in_stock": in_stock,
                         "updated_at": datetime.utcnow(),
-                    }
-                )
+                        # Optional: Update other fields if changed
+                        "vendor_rating": float(details.get("rating") or details.get("stars") or listing.get("vendor_rating", 0)),
+                        "review_count": int(details.get("reviews_count") or details.get("reviews") or listing.get("review_count", 0))
+                    })
+                    updated += 1
+                    logger.info(f"Deep Refresh: Updated {asin} | Price: {price} | Stock: {in_stock}")
+                else:
+                    logger.warning(f"Deep Refresh: Could not fetch details for {asin}")
+            except Exception as e:
+                logger.error(f"Deep Refresh Error for {asin}: {e}")
+                
+        logger.info(f"Deep Refresh Completed. Processed {count} listings, Updated {updated}.")
 
     # ------------------------------------------------------------------
     # Unified Add from URL
@@ -416,18 +559,82 @@ class AffiliateService:
         if not base_details:
             raise ValueError("Unable to fetch Amazon product details. Please provide metadata manually.")
 
-        title = base_details.get("title")
-        if not title and details:
-            title = details.get("title") or details.get("product_title")
+        # Extract all possible fields from RapidAPI response
+        title = (
+            base_details.get("title") 
+            or base_details.get("product_title")
+            or base_details.get("name")
+            or (details and (details.get("title") or details.get("product_title") or details.get("name")))
+        )
         if not title:
             title = f"Amazon Product {asin}"
-        price_str = base_details.get("price") or base_details.get("current_price") or "0"
+        
+        # Price extraction - try all possible fields
+        price_str = (
+            base_details.get("price")
+            or base_details.get("current_price")
+            or base_details.get("price_string")
+            or base_details.get("price_current")
+            or (details and (details.get("price") or details.get("current_price") or details.get("price_string")))
+            or "0"
+        )
         price = self._parse_price(str(price_str))
+        
+        # Image extraction - try all possible fields
         image = (
             base_details.get("main_image")
             or base_details.get("image")
             or base_details.get("product_photo")
+            or base_details.get("thumbnail")
+            or (base_details.get("images") and base_details["images"][0] if isinstance(base_details.get("images"), list) else None)
+            or (details and (details.get("main_image") or details.get("image") or details.get("product_photo") or details.get("thumbnail")))
             or "https://placehold.co/400?text=Amazon+Product"
+        )
+        
+        # Description extraction
+        description = (
+            base_details.get("description")
+            or base_details.get("snippet")
+            or base_details.get("product_description")
+            or (details and (details.get("description") or details.get("snippet")))
+            or ""
+        )
+        
+        # Rating extraction
+        rating = float(
+            base_details.get("rating", 0)
+            or base_details.get("stars", 0)
+            or base_details.get("average_rating", 0)
+            or (details and (details.get("rating") or details.get("stars") or details.get("average_rating")))
+            or 0
+        )
+        
+        # Review count extraction
+        review_count = int(
+            base_details.get("reviews", 0)
+            or base_details.get("reviews_count", 0)
+            or base_details.get("review_count", 0)
+            or base_details.get("total_reviews", 0)
+            or (details and (details.get("reviews") or details.get("reviews_count") or details.get("review_count")))
+            or 0
+        )
+        
+        # Prime status
+        is_prime = bool(
+            base_details.get("is_prime")
+            or base_details.get("amazonPrime")
+            or base_details.get("prime")
+            or (details and (details.get("is_prime") or details.get("amazonPrime")))
+        )
+        
+        # Stock status
+        in_stock = bool(
+            base_details.get("in_stock", True)
+            if isinstance(base_details.get("in_stock"), bool)
+            else (details and details.get("in_stock", True))
+            if details and isinstance(details.get("in_stock"), bool)
+            else "out of stock" not in str(base_details.get("availability", "")).lower()
+            and "currently unavailable" not in str(base_details.get("availability", "")).lower()
         )
         
         base_game = None
@@ -437,22 +644,23 @@ class AffiliateService:
         if isinstance(base_game, str) and base_game.strip().upper() in {"TBD", "UNKNOWN", "OTHER"}:
             base_game = None
         detected_game = self._detect_game_from_title(title)
+        
         normalized = {
             "asin": asin,
             "title": title,
-            "description": base_details.get("description", ""),
+            "description": description,
             "price": price,
             "image": image,
             "url": self.build_amazon_affiliate_url(asin),
-            "rating": float(base_details.get("rating", 0) or base_details.get("stars", 0) or 0),
-            "review_count": int(base_details.get("reviews", 0) or base_details.get("reviews_count", 0) or 0),
-            "prime": False, 
+            "rating": rating,
+            "review_count": review_count,
+            "prime": is_prime, 
             "game": base_game or detected_game,
             "product_type": "sealed_product",
             "release_status": "available",
-            "seller": base_details.get("seller") or "Amazon",
-            "quantity": int(base_details.get("quantity") or 10),
-            "in_stock": bool(base_details.get("in_stock", True))
+            "seller": base_details.get("seller") or base_details.get("merchant") or details.get("seller") if details else "Amazon",
+            "quantity": int(base_details.get("quantity") or base_details.get("stock_count") or details.get("quantity") if details else 10),
+            "in_stock": in_stock
         }
 
         if normalized["price"] <= 0:
@@ -663,6 +871,7 @@ async def amazon_sync_loop(service: AffiliateService):
     while True:
         try:
             await service.sync_amazon_tcg_products()
+            await service.update_affiliate_prices()  # Run Deep Refresh after search sync
         except asyncio.CancelledError:
             raise
         except Exception as exc:

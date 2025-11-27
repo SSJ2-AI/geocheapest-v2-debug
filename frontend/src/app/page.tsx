@@ -92,7 +92,27 @@ export default function Home() {
     return items
   }, [filteredProducts, sortOption])
 
-  const categories = ['Pokemon', 'One Piece', 'Yu-Gi-Oh', 'Magic: The Gathering', 'Dragon Ball']
+  // All TCG categories we pull from Amazon
+  const categories = [
+    'Pokemon',
+    'Magic: The Gathering',
+    'Yu-Gi-Oh',
+    'One Piece',
+    'Lorcana',
+    'Star Wars Unlimited',
+    'Union Arena',
+    'Dragon Ball Super',
+    'Digimon',
+    'Flesh and Blood',
+    'Weiss Schwarz',
+    'Final Fantasy TCG',
+    'Cardfight Vanguard',
+    'Shadowverse Evolve',
+    'Battle Spirits Saga',
+    'Grand Archive',
+    'Sorcery: Contested Realm',
+    'MetaZoo'
+  ]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
@@ -101,9 +121,9 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between gap-6">
             <Link href="/" className="flex items-center gap-3">
-              <span className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">
-                GT
-              </span>
+              <div className="h-10 w-10 relative flex items-center justify-center">
+                <img src="/tcg-logo.png" alt="GeoCheapest Logo" className="h-10 w-10 object-contain" />
+              </div>
               <div className="leading-tight">
                 <p className="text-base font-bold text-gray-900">GeoCheapestTCG</p>
                 <p className="text-xs text-gray-500">Canada&apos;s TCG marketplace</p>
@@ -154,26 +174,24 @@ export default function Home() {
             placeholder="Search for Pokemon, Yu-Gi-Oh, Magic cards..."
             className="w-full"
           />
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setCategory(null)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                category === null
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400'
-              }`}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${category === null
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400 hover:bg-blue-50'
+                }`}
             >
-              All products
+              All Products
             </button>
             {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  category === cat
-                    ? 'bg-blue-100 text-blue-700 border border-blue-300'
-                    : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400'
-                }`}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${category === cat
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
               >
                 {cat}
               </button>

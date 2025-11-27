@@ -5,14 +5,15 @@ import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { Store, DollarSign, ShoppingBag, Users, Trash2, Layers, Loader2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
 
 export default function AdminDashboard() {
   const router = useRouter()
   const apiBase = useMemo(() => getApiUrl(), [])
-  const [adminKey, setAdminKey] = useState('')
+  const { user, token, loading: authLoading } = useAuth()
+
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [authenticated, setAuthenticated] = useState(false)
   const [syncingAmazon, setSyncingAmazon] = useState(false)
   const [productUrl, setProductUrl] = useState('')
   const [addingProduct, setAddingProduct] = useState(false)
@@ -31,6 +32,36 @@ export default function AdminDashboard() {
   const [storeInventory, setStoreInventory] = useState<{ shop: string; data: any } | null>(null)
   const [storeInventoryLoading, setStoreInventoryLoading] = useState<string | null>(null)
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user || user.role !== 'admin') {
+        router.push('/login')
+      } else {
+        fetchDashboardData()
+      }
+    }
+  }, [user, authLoading, router])
+
+  const getHeaders = () => ({
+    headers: { Authorization: `Bearer ${token}` }
+  })
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      const response = await axios.get(`${apiBase}/api/admin/dashboard`, getHeaders())
+      setDashboardData(response.data)
+    } catch (error: any) {
+      setErrorMessage('Failed to load dashboard')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const buildMetadata = () => {
     const metadata: Record<string, string> = {}
@@ -43,8 +74,10 @@ export default function AdminDashboard() {
   }
 
   const handleAddProduct = async () => {
+    setErrorMessage('')
+    setSuccessMessage('')
     if (!productUrl) {
-      window.alert('Paste an Amazon or eBay link first.')
+      setErrorMessage('Paste an Amazon or eBay link first.')
       return
     }
 
@@ -52,10 +85,9 @@ export default function AdminDashboard() {
       setAddingProduct(true)
       await axios.post(`${apiBase}/api/admin/products/add_from_url`, {
         url: productUrl.trim(),
-        admin_key: adminKey,
         metadata: buildMetadata()
-      })
-      window.alert('Product added successfully!')
+      }, getHeaders())
+      setSuccessMessage('Product added successfully!')
       setProductUrl('')
       setProductOverrides({
         title: '',
@@ -65,58 +97,54 @@ export default function AdminDashboard() {
         rating: '',
         review_count: ''
       })
-      handleLogin()
+      fetchDashboardData()
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
-      window.alert(`Failed to add product: ${detail}`)
+      setErrorMessage(`Failed to add product: ${detail}`)
     } finally {
       setAddingProduct(false)
     }
   }
 
   const handleDeleteProduct = async (productId?: string) => {
+    setErrorMessage('')
+    setSuccessMessage('')
     const targetId = (productId || deleteInputId).trim()
     if (!targetId) {
-      window.alert('Enter a product ID first.')
+      setErrorMessage('Enter a product ID first.')
       return
     }
-    if (!adminKey) {
-      window.alert('Enter the admin key before deleting products.')
-      return
-    }
+
     const confirmed = window.confirm(`Remove product ${targetId}? This action cannot be undone.`)
     if (!confirmed) {
       return
     }
     try {
       setDeletingProductId(targetId)
-      await axios.delete(`${apiBase}/api/admin/products/${targetId}`, {
-        params: { admin_key: adminKey },
-      })
+      await axios.delete(`${apiBase}/api/admin/products/${targetId}`, getHeaders())
       if (!productId) {
         setDeleteInputId('')
       }
-      window.alert('Product removed.')
-      handleLogin()
+      setSuccessMessage('Product removed.')
+      fetchDashboardData()
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
-      window.alert(`Failed to delete product: ${detail}`)
+      setErrorMessage(`Failed to delete product: ${detail}`)
     } finally {
       setDeletingProductId(null)
     }
   }
 
   const handleBulkDelete = async () => {
-    if (!adminKey) {
-      window.alert('Enter the admin key before deleting products.')
-      return
-    }
+    setErrorMessage('')
+    setSuccessMessage('')
+
     const ids = deleteTextarea
       .split(/[\s,;,]+/)
       .map((id) => id.trim())
       .filter((id) => id.length > 0)
     if (ids.length === 0) {
-      window.alert('Paste one or more product IDs (separated by commas or new lines).')
+      setErrorMessage('Paste one or more product IDs (separated by commas or new lines).')
       return
     }
     const confirmed = window.confirm(`Delete ${ids.length} product(s)? This cannot be undone.`)
@@ -129,118 +157,151 @@ export default function AdminDashboard() {
       const response = await axios.post(
         `${apiBase}/api/admin/products/delete`,
         { product_ids: ids },
-        { params: { admin_key: adminKey } }
+        getHeaders()
       )
       setBulkDeleteResult(response.data)
-      window.alert('Bulk delete finished.')
-      handleLogin()
+      setSuccessMessage('Bulk delete finished.')
+      fetchDashboardData()
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || 'Unable to delete products.'
-      window.alert(detail)
+      setErrorMessage(detail)
     } finally {
       setBulkDeleting(false)
     }
   }
 
   const fetchStoreInventory = async (shop: string) => {
-    if (!adminKey) {
-      window.alert('Enter the admin key first.')
-      return
-    }
+    setErrorMessage('')
     try {
       setStoreInventoryLoading(shop)
-      const response = await axios.get(`${apiBase}/api/admin/stores/${shop}/inventory`, {
-        params: { admin_key: adminKey },
-      })
+      const response = await axios.get(`${apiBase}/api/admin/stores/${shop}/inventory`, getHeaders())
       setStoreInventory({ shop, data: response.data })
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || 'Unable to load store inventory.'
-      window.alert(detail)
+      setErrorMessage(detail)
     } finally {
       setStoreInventoryLoading(null)
     }
   }
 
-  const handleLogin = async () => {
-    if (!adminKey) {
-      window.alert('Please enter admin key')
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await axios.get(`${apiBase}/api/admin/dashboard`, {
-        params: { admin_key: adminKey },
-      })
-      setDashboardData(response.data)
-      setAuthenticated(true)
-    } catch (error: any) {
-      if (error.response?.status === 403) {
-        window.alert('Invalid admin key')
-      } else {
-        window.alert('Failed to load dashboard')
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const handleSyncAmazon = async () => {
+    setErrorMessage('')
+    setSuccessMessage('')
     try {
       setSyncingAmazon(true)
-      await axios.post(
+      const response = await axios.post(
         `${apiBase}/api/admin/amazon/sync`,
         null,
-        { params: { admin_key: adminKey } }
+        getHeaders()
       )
-      window.alert('Amazon ingest triggered')
-    } catch (error) {
-      window.alert('Failed to launch Amazon sync')
-    } finally {
+      setSuccessMessage('Amazon sync started in background! This may take a few minutes. The page will refresh when complete.')
+      // Refresh dashboard after a delay to show updated products
+      setTimeout(() => {
+        fetchDashboardData()
+        setSyncingAmazon(false)
+      }, 5000)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
+      setErrorMessage(`Failed to launch Amazon sync: ${detail}`)
       setSyncingAmazon(false)
     }
   }
 
+  const handleToggleProduct = (productId: string) => {
+    const newSelected = new Set(selectedProducts)
+    if (newSelected.has(productId)) {
+      newSelected.delete(productId)
+    } else {
+      newSelected.add(productId)
+    }
+    setSelectedProducts(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    if (selectedProducts.size === filteredProducts.length) {
+      setSelectedProducts(new Set())
+    } else {
+      setSelectedProducts(new Set(filteredProducts.map((p: any) => p.id)))
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedProducts.size === 0) {
+      setErrorMessage('No products selected')
+      return
+    }
+    const confirmed = window.confirm(`Delete ${selectedProducts.size} selected product(s)? This cannot be undone.`)
+    if (!confirmed) {
+      return
+    }
+    try {
+      setBulkDeleting(true)
+      const response = await axios.post(
+        `${apiBase}/api/admin/products/delete`,
+        { product_ids: Array.from(selectedProducts) },
+        getHeaders()
+      )
+      setBulkDeleteResult(response.data)
+      setSelectedProducts(new Set())
+      setSuccessMessage(`Deleted ${response.data.deleted?.length || 0} product(s)`)
+      fetchDashboardData()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Unable to delete products.'
+      setErrorMessage(detail)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  const filteredProducts = useMemo(() => {
+    if (!dashboardData?.top_products) return []
+    if (selectedCategory === 'all') return dashboardData.top_products
+    return dashboardData.top_products.filter((p: any) => p.category === selectedCategory)
+  }, [dashboardData, selectedCategory])
+
   const handleApproveStore = async (shop: string) => {
+    setErrorMessage('')
+    setSuccessMessage('')
     try {
       await axios.post(
         `${apiBase}/api/admin/stores/${shop}/approve`,
         null,
-        { params: { admin_key: adminKey } }
+        getHeaders()
       )
-      window.alert(`Store ${shop} approved!`)
-      handleLogin() // Refresh data
+      setSuccessMessage(`Store ${shop} approved!`)
+      fetchDashboardData() // Refresh data
     } catch (error) {
-      window.alert('Failed to approve store')
+      setErrorMessage('Failed to approve store')
     }
   }
 
-  if (!authenticated) {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow-md p-8 max-w-md w-full">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-            Admin Portal
-          </h1>
-          <input
-            type="password"
-            value={adminKey}
-            onChange={(e) => setAdminKey(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-            placeholder="Enter admin key"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
-          />
-          <p className="text-xs text-gray-500 mb-4 text-center">
-            Use the admin key from your backend env (try <span className="font-semibold">admin123</span> if you enabled
-            legacy keys).
-          </p>
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400"
-          >
-            {loading ? 'Loading...' : 'Login'}
-          </button>
+        <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+      </div>
+    )
+  }
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-md p-8 max-w-md text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Admin Access Required</h2>
+          <p className="text-gray-600 mb-6">You need to be logged in as an admin to access this page.</p>
+          <div className="space-y-3">
+            <a
+              href="/login"
+              className="block w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+            >
+              Go to Login
+            </a>
+            <p className="text-sm text-gray-500 mt-4">
+              Don't have an admin account? Use the backend script to create one:
+              <br />
+              <code className="text-xs bg-gray-100 px-2 py-1 rounded">python create_admin.py</code>
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -259,6 +320,17 @@ export default function AdminDashboard() {
             {syncingAmazon ? 'Syncing Amazon...' : 'Sync Amazon Inventory'}
           </button>
         </div>
+
+        {successMessage && (
+          <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg text-sm text-center">
+            {successMessage}
+          </div>
+        )}
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm text-center">
+            {errorMessage}
+          </div>
+        )}
 
         {/* Unified Add Product Form */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
@@ -447,11 +519,29 @@ export default function AdminDashboard() {
               <Layers className="w-5 h-5 text-blue-600" />
               <h2 className="text-xl font-bold text-gray-900">Category breakdown</h2>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 mb-4">
+              <button
+                onClick={() => setSelectedCategory('all')}
+                className={`inline-flex items-center rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                  selectedCategory === 'all'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                All Products
+              </button>
               {Object.entries(dashboardData.category_summary).map(([category, count]) => (
-                <span key={category} className="inline-flex items-center rounded-full border border-gray-200 px-4 py-1.5 text-sm text-gray-700">
-                  {category}: <span className="ml-1 font-semibold text-gray-900">{count as number}</span>
-                </span>
+                <button
+                  key={category}
+                  onClick={() => setSelectedCategory(category)}
+                  className={`inline-flex items-center rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                    selectedCategory === category
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {category}: <span className="ml-1 font-semibold">{count as number}</span>
+                </button>
               ))}
             </div>
           </div>
@@ -607,27 +697,66 @@ export default function AdminDashboard() {
 
         {/* Top Products */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Top Products</h2>
-          <div className="space-y-4">
-            {dashboardData?.top_products.map((product: any) => (
-              <div key={product.id} className="flex flex-wrap items-start gap-3 justify-between border-b pb-4">
-                <div>
-                  <p className="font-medium text-gray-900">{product.name}</p>
-                  <p className="text-sm text-gray-600">{product.category}</p>
-                  <p className="text-xs text-gray-400 mt-1 break-all">ID: {product.id}</p>
-                </div>
-                <div className="text-right space-y-2">
-                  <p className="font-bold text-gray-900">{product.total_sales} sales</p>
-                  <button
-                    onClick={() => handleDeleteProduct(product.id)}
-                    disabled={deletingProductId === product.id}
-                    className="text-sm text-red-600 hover:text-red-700 disabled:text-gray-400"
-                  >
-                    {deletingProductId === product.id ? 'Deleting…' : 'Remove'}
-                  </button>
-                </div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">
+              Products {selectedCategory !== 'all' && `(${selectedCategory})`}
+            </h2>
+            {selectedProducts.size > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">{selectedProducts.size} selected</span>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={bulkDeleting}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors disabled:bg-gray-400"
+                >
+                  {bulkDeleting ? 'Deleting…' : `Delete Selected (${selectedProducts.size})`}
+                </button>
               </div>
-            ))}
+            )}
+          </div>
+          <div className="mb-4 flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedProducts.size === filteredProducts.length && filteredProducts.length > 0}
+                onChange={handleSelectAll}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 font-medium">Select All</span>
+            </label>
+          </div>
+          <div className="space-y-4">
+            {filteredProducts.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No products found in this category.</p>
+            ) : (
+              filteredProducts.map((product: any) => (
+                <div key={product.id} className="flex flex-wrap items-start gap-3 justify-between border-b pb-4">
+                  <div className="flex items-start gap-3 flex-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.has(product.id)}
+                      onChange={() => handleToggleProduct(product.id)}
+                      className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{product.name}</p>
+                      <p className="text-sm text-gray-600">{product.category || 'Uncategorized'}</p>
+                      <p className="text-xs text-gray-400 mt-1 break-all">ID: {product.id}</p>
+                    </div>
+                  </div>
+                  <div className="text-right space-y-2">
+                    <p className="font-bold text-gray-900">{product.total_sales || 0} sales</p>
+                    <button
+                      onClick={() => handleDeleteProduct(product.id)}
+                      disabled={deletingProductId === product.id}
+                      className="text-sm text-red-600 hover:text-red-700 disabled:text-gray-400"
+                    >
+                      {deletingProductId === product.id ? 'Deleting…' : 'Remove'}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
