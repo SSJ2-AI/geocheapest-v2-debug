@@ -100,7 +100,22 @@ export default function AdminDashboard() {
       fetchDashboardData()
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
-      setErrorMessage(`Failed to add product: ${detail}`)
+      const status = error?.response?.status
+      
+      // Better error messages
+      if (status === 403) {
+        if (detail.includes('admin') || detail.includes('Admin')) {
+          setErrorMessage(`Admin access required. Please log in as an admin user. If you don't have an admin account, run: python create_admin.py`)
+        } else {
+          setErrorMessage(`Access denied: ${detail}`)
+        }
+      } else if (status === 401) {
+        setErrorMessage('Not logged in. Please log in first at /login')
+      } else {
+        setErrorMessage(`Failed to add product: ${detail}`)
+      }
+      
+      console.error('Add product error:', { status, detail, error })
     } finally {
       setAddingProduct(false)
     }
