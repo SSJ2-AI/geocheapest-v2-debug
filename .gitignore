@@ -71,9 +71,83 @@ update_gcp_secret.ps1
 verify_gcp.py
 url.txt
 test_add_product.py
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+env/
+ENV/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Google Cloud
+.gcloud/
+service-account.json
+
+# Logs
+*.log
+logs/
+
+# Secrets and API Keys
+**/key.txt
+**/key.json
+gcp_complete_key.json
+add_secrets*.py
+add_secrets*.ps1
+update_gcp_secret.ps1
+verify_gcp.py
+url.txt
+test_add_product.py
 add_test_product_api.py
 
 # Temporary Logs
 latest_logs.json
 service_desc.json
 backend/mock_db.pkl
+!frontend/src/lib/

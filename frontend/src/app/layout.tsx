@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   description: 'Find the cheapest Pokemon, Yu-Gi-Oh, Magic, and One Piece cards in Canada',
 }
 
+import { AuthProvider } from '@/context/AuthContext'
+
 export default function RootLayout({
   children,
 }: {
@@ -18,8 +20,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {children}
-        <ChatWindow />
+        <AuthProvider>
+          {children}
+          <ChatWindow />
+        </AuthProvider>
       </body>
     </html>
   )

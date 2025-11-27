@@ -215,27 +215,30 @@ class ShopifyService:
         headers = self._rest_headers(access_token)
         callback_url = f"{self.backend_url}/api/shopify/webhook"
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            existing_resp = await client.get(endpoint, headers=headers)
-            existing = existing_resp.json().get("webhooks", []) if existing_resp.is_success else []
-            existing_map = {hook["topic"]: hook for hook in existing}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                existing_resp = await client.get(endpoint, headers=headers)
+                existing = existing_resp.json().get("webhooks", []) if existing_resp.is_success else []
+                existing_map = {hook["topic"]: hook for hook in existing}
 
-            for topic in WEBHOOK_TOPICS:
-                payload = {
-                    "webhook": {
-                        "topic": topic,
-                        "address": callback_url,
-                        "format": "json",
+                for topic in WEBHOOK_TOPICS:
+                    payload = {
+                        "webhook": {
+                            "topic": topic,
+                            "address": callback_url,
+                            "format": "json",
+                        }
                     }
-                }
-                hook = existing_map.get(topic)
-                if hook and hook.get("address") == callback_url:
-                    continue
-                if hook:
-                    update_url = f"https://{shop}/admin/api/{self.api_version}/webhooks/{hook['id']}.json"
-                    await client.put(update_url, headers=headers, json=payload)
-                else:
-                    await client.post(endpoint, headers=headers, json=payload)
+                    hook = existing_map.get(topic)
+                    if hook and hook.get("address") == callback_url:
+                        continue
+                    if hook:
+                        update_url = f"https://{shop}/admin/api/{self.api_version}/webhooks/{hook['id']}.json"
+                        await client.put(update_url, headers=headers, json=payload)
+                    else:
+                        await client.post(endpoint, headers=headers, json=payload)
+        except Exception as e:
+            logger.warning(f"Failed to register webhooks for {shop}: {e}. Connection proceeding without real-time updates.")
 
     # ------------------------------------------------------------------
     # Token helpers

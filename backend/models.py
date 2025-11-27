@@ -72,6 +72,7 @@ class UserCreate(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: str = "user"  # admin, vendor, user
 
 class TokenData(BaseModel):
     email: Optional[str] = None
@@ -100,6 +101,8 @@ class Product(BaseModel):
     description: Optional[str] = None
     category: str  # "Pokemon", "Yu-Gi-Oh", "Magic", "One Piece", etc.
     image_url: Optional[str] = None
+    url: Optional[str] = None
+    in_stock: bool = True
     created_at: datetime
     updated_at: datetime
     total_sales: int = 0

@@ -79,7 +79,7 @@ export default function VendorSignup() {
         <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-3">Option 2: Private app token</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Paste a Shopify Admin API access token (read_products, read_inventory). We&apos;ll validate it, create webhooks,
+            Paste a Shopify Admin API access token (read_products, read_inventory). We&apos;ll validate it,
             and start syncing immediately.
           </p>
           <form className="space-y-4" onSubmit={handleSubmit}>
