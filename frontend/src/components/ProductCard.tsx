@@ -9,16 +9,18 @@ interface Product {
   description: string
   category: string
   image_url: string
-  best_price: number
-  source: string
-  source_name: string
-  in_stock: boolean
-  is_preorder: boolean
+  best_price?: number
+  source?: string
+  source_name?: string
+  in_stock?: boolean
+  is_preorder?: boolean
   url?: string
 }
 
 export function ProductCard({ product }: { product: Product }) {
   const addItem = useCartStore((state) => state.addItem)
+  const isInStock = product.in_stock ?? true
+  const isPreorder = Boolean(product.is_preorder)
 
   const handleAddToCart = () => {
     addItem({
@@ -29,6 +31,17 @@ export function ProductCard({ product }: { product: Product }) {
       image_url: product.image_url,
     })
   }
+
+  const isAffiliateLink = Boolean(
+    product.url &&
+    (
+      product.source?.toLowerCase().includes('affiliate') ||
+      product.source?.toLowerCase().includes('amazon') ||
+      product.source?.toLowerCase().includes('ebay')
+    )
+  )
+
+  const isAmazonPartner = isAffiliateLink && product.source_name?.toLowerCase().includes('amazon')
 
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group">
@@ -48,12 +61,12 @@ export function ProductCard({ product }: { product: Product }) {
             className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
           />
         )}
-        {product.is_preorder && (
+        {isPreorder && (
           <span className="absolute top-2 left-2 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
             Pre-Order
           </span>
         )}
-        {!product.is_preorder && product.source === 'affiliate' && (
+        {!isPreorder && product.source === 'affiliate' && (
           <span className="absolute top-2 left-2 bg-purple-600 text-white px-2 py-1 rounded text-xs font-medium">
             Partner Seller
           </span>
@@ -78,7 +91,7 @@ export function ProductCard({ product }: { product: Product }) {
 
         <div className="flex items-center gap-2 mb-3">
           <Tag className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-600">{product.source_name}</span>
+          <span className="text-sm text-gray-600">{product.source_name || 'Partner Source'}</span>
         </div>
 
         <div className="flex items-center justify-between">
@@ -94,14 +107,8 @@ export function ProductCard({ product }: { product: Product }) {
               <span className="text-sm text-gray-500">Price unavailable</span>
             )}
           </div>
-
-
           {/* Show affiliate "Buy" button if product has a URL and is from an affiliate source */}
-          {(product.url && (
-            product.source?.toLowerCase().includes('affiliate') ||
-            product.source?.toLowerCase().includes('amazon') ||
-            product.source?.toLowerCase().includes('ebay')
-          )) ? (
+          {isAffiliateLink ? (
             <a
               href={product.url}
               target="_blank"
@@ -109,24 +116,24 @@ export function ProductCard({ product }: { product: Product }) {
               className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
             >
               <ShoppingCart className="w-4 h-4" />
-              Buy on {product.source_name}
+              {isAmazonPartner ? 'Buy from Amazon.ca' : `Buy on ${product.source_name || 'partner site'}`}
             </a>
           ) : (
             <button
               onClick={handleAddToCart}
-              disabled={!product.in_stock && !product.is_preorder}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${product.in_stock || product.is_preorder
+              disabled={!isInStock && !isPreorder}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${isInStock || isPreorder
                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
             >
               <ShoppingCart className="w-4 h-4" />
-              {product.is_preorder ? 'Pre-Order' : 'Add to Cart'}
+              {isPreorder ? 'Pre-Order' : 'Add to Cart'}
             </button>
           )}
         </div>
 
-        {!product.in_stock && !product.is_preorder && (
+        {!isInStock && !isPreorder && (
           <p className="text-red-500 text-sm mt-2 font-medium">Out of Stock</p>
         )}
       </div>
